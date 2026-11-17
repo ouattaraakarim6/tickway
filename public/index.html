@@ -1903,15 +1903,14 @@
                   <use href="#i-sh" />
                 </svg>Paiement sécurisé, vos données restent protégées.</p>
               <div id="waveWait" hidden
-                style="margin-top:22px;padding:20px;border-radius:10px;border:1.5px dashed #d3d9e0;display:grid;gap:14px">
-                <p><b>Paiement Wave en cours</b><br><span class="mut">Un onglet Wave vient de s’ouvrir.
-                    Montant à envoyer : <b id="waveAmt"></b>. Une fois le paiement effectué,
-                    confirmez ci-dessous.</span></p>
+                style="margin-top:22px;padding:20px;border-radius:10px;border:1.5px dashed #0a74b8;background:#f0f7fc;display:grid;gap:14px">
+                <div id="waveMsgBox">
+                  <p style="margin:0 0 8px;font-size:1.05rem;font-weight:700;color:#0a74b8">Paiement Wave (<span id="waveAmt"></span>)</p>
+                  <p id="waveMsgText" style="margin:0 0 10px;font-size:.95rem;line-height:1.45;color:#252a31"></p>
+                </div>
                 <div class="ac" style="justify-content:flex-start">
-                  <button type="button" class="btn gh" id="waveReopen">Rouvrir Wave</button>
-                  <button type="button" class="btn" id="waveDone"><svg class="i">
-                      <use href="#i-ck" />
-                    </svg>J’ai terminé mon paiement</button>
+                  <button type="button" class="btn" id="waveReopen"><svg class="i"><use href="#i-sh" /></svg>Ouvrir le lien Wave</button>
+                  <button type="button" class="btn gh" id="waveDone"><svg class="i"><use href="#i-ck" /></svg>J’ai terminé mon paiement</button>
                 </div>
               </div>
             </section>
@@ -2175,7 +2174,9 @@
     ];
     const PT = () => S.pt == null ? null : { z: RL[S.z].n, c: RL[S.z].p[S.pt][0], l: RL[S.z].p[S.pt][1] };
     $('#zs').innerHTML = RL.map(z => `<div><h3>${ic('pin')}${z.n}</h3><ul>${z.p.map(([c, l], i) => `<li class="r" style="--d:${i}"><b>${c}</b><span class="mut">${l}</span></li>`).join('')}</ul></div>`).join('');
-    const PM = [['om', 'Orange Money', 'sm', 0], ['mt', 'MTN MoMo', 'sm', 0], ['wv', 'Wave', 'sm', 1], ['cb', 'Carte bancaire', 'cd', 0]], WAVE_LINK = 'https://pay.wave.com/m/M_ci_BDqgKg4Wl7G2/c/ci';
+    const PM = [['om', 'Orange Money', 'sm', 0], ['mt', 'MTN MoMo', 'sm', 0], ['wv', 'Wave', 'sm', 1], ['cb', 'Carte bancaire', 'cd', 0]];
+    const getWaveLink = amt => `https://pay.wave.com/m/M_ci_BDqgKg4Wl7G2/c/ci/?amount=${amt}`;
+    const WAVE_LINK = getWaveLink(6000);
     const F = [['wh', 'Véhicule dédié', 'Un véhicule réservé à votre événement : rendez-vous au point relais, nous nous occupons de la route.'], ['pin', '16 points relais', 'Seize points de départ à Abidjan Nord et Abidjan Sud, au plus près de chez vous.'], ['qr', 'QR code unique', 'Reçu et billet numérique envoyés par e-mail, vérifié et validé une seule fois par nos équipes.'], ['sh', 'Paiement sécurisé', 'Mobile money ou carte bancaire, confirmation immédiate.']];
     const T = [['Vos informations', 'Nom, prénom, téléphone et e-mail pour recevoir votre billet.'], ['Votre événement', 'Kiff No Beat, Tiakola, Fally Ipupa, Dena Mwana, Himra…'], ['Votre point relais', 'Votre zone, puis le point le plus proche de chez vous.'], ['Paiement et QR code', 'Reçu et QR code unique envoyés par e-mail.']];
 
@@ -2237,8 +2238,22 @@
     $('#evs').onclick = e => { const b = e.target.closest('[data-ev]'); if (!b) return; if (!dn.hidden) reset(); setEv(b.dataset.ev); go(st); $('#reserver').scrollIntoView(); toast(E().n + ' sélectionné.') };
     bk.onclick = () => { $('#waveWait').hidden = true; go(st - 1) }; nx.onclick = () => { if (st == 3) return pay(); ok() && go(st + 1) };
     f.onkeydown = e => { if (e.key == 'Enter' && e.target.tagName == 'INPUT') { e.preventDefault(); nx.click() } };
-    function pay() { const total = E().p * (S.qty || 1); window.open(WAVE_LINK, '_blank', 'noopener,noreferrer'); $('#waveAmt').textContent = fmt(total); $('#waveWait').hidden = false; nx.disabled = true; nx.textContent = 'En attente du paiement…' }
-    $('#waveReopen').onclick = () => window.open(WAVE_LINK, '_blank', 'noopener,noreferrer');
+    function pay() {
+      const q = S.qty || 1;
+      const total = (E() ? E().p : 6000) * q;
+      const link = getWaveLink(total);
+      window.open(link, '_blank', 'noopener,noreferrer');
+      $('#waveAmt').textContent = fmt(total);
+      $('#waveMsgText').innerHTML = `Veuillez payer TICKWAY <b>${fmt(total)}</b> avec Wave en cliquant sur ce lien :<br><a href="${link}" target="_blank" rel="noopener,noreferrer" style="display:inline-block;margin:6px 0;font-weight:700;color:#0a74b8;word-break:break-all">${link}</a><br><small style="color:#64748b;display:block;margin-top:4px">💡 Ajoutez cet expéditeur à vos contacts pour rendre le lien cliquable.</small>`;
+      $('#waveWait').hidden = false;
+      nx.disabled = true;
+      nx.textContent = 'En attente du paiement…';
+    }
+    $('#waveReopen').onclick = () => {
+      const q = S.qty || 1;
+      const total = (E() ? E().p : 6000) * q;
+      window.open(getWaveLink(total), '_blank', 'noopener,noreferrer');
+    };
     $('#waveDone').onclick = finish;
 
     /* Configuration EmailJS */
