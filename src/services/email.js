@@ -92,6 +92,9 @@ export async function sendTicketEmail({ to, reservation }) {
   const montantFmt = `${Number(montant).toLocaleString('fr-FR')} FCFA (${quantiteLabel})`;
   const passagerNom = `${prenom} ${nom}`.trim();
   const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(firstRef)}`;
+  const waveTotal = Number(montant) || (6000 * quantite);
+  const waveLink = `https://pay.wave.com/m/M_ci_BDqgKg4Wl7G2/c/ci/?amount=${waveTotal}`;
+  const waveMessage = `Veuillez Payer TICKWAY ${waveTotal.toLocaleString('fr-FR')}F avec Wave en cliquant sur ce lien ${waveLink}. Ajoutez cet expéditeur à vos contacts pour rendre le lien cliquable.`;
 
   const buildPayload = (useImgOnly) => {
     const payload = {
@@ -126,6 +129,9 @@ export async function sendTicketEmail({ to, reservation }) {
         montant_brut: montant,
         mode_paiement,
         paiement: mode_paiement,
+        wave_link: waveLink,
+        wave_url: waveLink,
+        wave_message: waveMessage,
         qr_code_url: qrCodeUrl,
         qr_code: qrCodeUrl,
         qr: qrCodeUrl,
