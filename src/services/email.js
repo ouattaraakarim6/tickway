@@ -7,8 +7,8 @@ import QRCode from 'qrcode';
  */
 function buildQrHtmlTable(text) {
   try {
-    const { modules } = QRCode.create(text, { errorCorrectionLevel: 'M' });
-    const n = modules.size, px = 6, W = n * px;
+    const { modules } = QRCode.create(text, { errorCorrectionLevel: 'L' });
+    const n = modules.size, px = n > 29 ? 4 : 6, W = n * px;
     let cols = '<colgroup>';
     for (let i = 0; i < n; i++) cols += `<col width=${px}>`;
     cols += '</colgroup>';
@@ -23,7 +23,7 @@ function buildQrHtmlTable(text) {
       }
       rows += `<tr height=${px}>${cells}</tr>`;
     }
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${W}" align="center" style="border-collapse:collapse;table-layout:fixed;margin:0 auto;font-size:0;line-height:0;background:#fff;border:10px solid #fff">${cols}${rows}</table>`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${W}" align="center" bgcolor="#ffffff" style="border-collapse:collapse;table-layout:fixed;margin:0 auto;font-size:0;line-height:0;background:#ffffff;border:10px solid #ffffff">${cols}${rows}</table>`;
   } catch {
     return '';
   }
@@ -33,14 +33,15 @@ function buildTicketsEmailHtml(tickets, passagerNom, useImgOnly = false) {
   const total = tickets.length;
   return tickets.map((t, idx) => {
     const ref = t.reference || t.code || t;
+    const qrContent = t.qrText || ref;
     const num = idx + 1;
     const title = total > 1
       ? `Ticket ${num}/${total} — ${idx === 0 ? passagerNom + ' (Titulaire)' : 'Passager ' + num}`
       : `Ticket — ${passagerNom}`;
-    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(ref)}`;
+    const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrContent)}`;
     const qrVisual = useImgOnly
-      ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="150" height="150" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
-      : (buildQrHtmlTable(ref) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="150" height="150" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
+      ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
+      : (buildQrHtmlTable(qrContent) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
     return `<div style="margin:${idx === 0 ? '0' : '14px'} 0 0;padding:16px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:10px;text-align:center">` +
       `<div style="font-size:13px;font-weight:700;color:#0a74b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${title}</div>` +
       qrVisual +
@@ -91,7 +92,8 @@ export async function sendTicketEmail({ to, reservation }) {
   const recipientEmail = to || email;
   const montantFmt = `${Number(montant).toLocaleString('fr-FR')} FCFA (${quantiteLabel})`;
   const passagerNom = `${prenom} ${nom}`.trim();
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(firstRef)}`;
+  const firstQrContent = (ticketList[0] && ticketList[0].qrText) || firstRef;
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(firstQrContent)}`;
   const waveTotal = Number(montant) || (6000 * quantite);
   const waveLink = `https://pay.wave.com/m/M_ci_BDqgKg4Wl7G2/c/ci/?amount=${waveTotal}`;
   const waveMessage = `Veuillez Payer TICKWAY ${waveTotal.toLocaleString('fr-FR')}F avec Wave en cliquant sur ce lien ${waveLink}. Ajoutez cet expéditeur à vos contacts pour rendre le lien cliquable.`;
@@ -159,13 +161,16 @@ export async function sendTicketEmail({ to, reservation }) {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
   };
 
+  const htmlBodyStr = JSON.stringify(buildPayload(false));
+  const initialBody = htmlBodyStr.length <= 46000 ? htmlBodyStr : JSON.stringify(buildPayload(true));
+
   let resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
     method: 'POST',
     headers,
-    body: JSON.stringify(buildPayload(false)),
+    body: initialBody,
   });
 
-  if (!resp.ok) {
+  if (!resp.ok && htmlBodyStr.length <= 46000) {
     resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
       headers,

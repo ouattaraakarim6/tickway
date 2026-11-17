@@ -39,6 +39,9 @@ router.post('/', async (req, res) => {
     const totalMontant = event.p * quantite;
     const pointRelaisStr = `${relais.commune}, ${relais.lieu}`;
     const eventDate = event.h ? `${event.d}, ${event.h}` : event.d;
+    const baseOrigin = (process.env.APP_URL && !process.env.APP_URL.includes('localhost'))
+      ? process.env.APP_URL.replace(/\/$/, '')
+      : (req.get('host') ? `${req.protocol}://${req.get('host')}` : 'https://tickway.netlify.app');
 
     const tickets = [];
     const references = [];
@@ -61,13 +64,15 @@ router.post('/', async (req, res) => {
         ]
       );
 
-      const qrDataUrl = await generateQRDataUrl(ref);
+      const qrText = `${baseOrigin}/#controle?c=${encodeURIComponent(ref)}`;
+      const qrDataUrl = await generateQRDataUrl(qrText);
       tickets.push({
         numero: i,
         reference: ref,
         code: ref,
         label: i === 1 ? `${prenom} ${nom} (Titulaire)` : `Passager ${i}`,
         qrDataUrl,
+        qrText,
         statut: 'valide',
       });
     }
@@ -122,7 +127,10 @@ router.get('/:reference/qr.png', async (req, res) => {
     return res.status(400).send('Format de référence invalide.');
   }
   try {
-    const qrBuffer = await generateQR(reference);
+    const baseOrigin = (process.env.APP_URL && !process.env.APP_URL.includes('localhost'))
+      ? process.env.APP_URL.replace(/\/$/, '')
+      : (req.get('host') ? `${req.protocol}://${req.get('host')}` : 'https://tickway.netlify.app');
+    const qrBuffer = await generateQR(`${baseOrigin}/#controle?c=${encodeURIComponent(reference)}`);
     res.setHeader('Content-Type', 'image/png');
     res.setHeader('Cache-Control', 'public, max-age=86400');
     return res.send(qrBuffer);

@@ -39,6 +39,7 @@ CREATE INDEX IF NOT EXISTS idx_reservations_email  ON reservations (email);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3000;
 
 // ── Sécurité ──

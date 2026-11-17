@@ -1,0 +1,3082 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>TickWay – Votre place pour les concerts d’Abidjan</title>
+  <link rel="icon"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a74b8'/%3E%3Cpath d='M8 11h16M16 11v12' stroke='%23fff' stroke-width='3.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    :root {
+      --o: #e0a526;
+      --od: #0a74b8;
+      --k: #252a31;
+      --k2: #2f353d;
+      --k3: #1b1f24;
+      --w: #f8fafc;
+      --g: #a9b4c0;
+      --ln: rgba(248, 250, 252, .14);
+      --e: cubic-bezier(.2, .8, .2, 1);
+      box-sizing: border-box;
+      padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px)
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: inherit;
+      margin: 0
+    }
+
+    [hidden] {
+      display: none !important
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: calc(80px + env(safe-area-inset-top, 0px))
+    }
+
+    body {
+      background: var(--k);
+      color: var(--w);
+      font: 400 16px/1.6 'Instrument Sans', system-ui, sans-serif;
+      overflow-x: hidden
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0 0 auto;
+      height: env(safe-area-inset-top, 0px);
+      background: var(--k);
+      z-index: 10
+    }
+
+    h1,
+    h2,
+    h3 {
+      font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+      font-weight: 800;
+      line-height: 1.02;
+      letter-spacing: -.03em
+    }
+
+    h2 {
+      font-size: clamp(2.2rem, 5.5vw, 4.4rem)
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none
+    }
+
+    button,
+    input {
+      font: inherit;
+      color: inherit
+    }
+
+    :focus-visible {
+      outline: 3px solid var(--o);
+      outline-offset: 3px
+    }
+
+    .main :focus-visible {
+      outline-color: var(--od)
+    }
+
+    .i {
+      width: 22px;
+      height: 22px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 1.7;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      flex: none
+    }
+
+    .mut {
+      color: var(--g)
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 28px;
+      border-radius: 99px;
+      background: var(--o);
+      color: var(--k);
+      font-weight: 600;
+      border: 0;
+      cursor: pointer;
+      transition: transform .3s var(--e), box-shadow .3s
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px -10px var(--o)
+    }
+
+    .btn.gh {
+      background: 0;
+      color: inherit;
+      border: 1.5px solid currentColor
+    }
+
+    .btn:disabled {
+      opacity: .6;
+      cursor: wait;
+      transform: none;
+      box-shadow: none
+    }
+
+    #ld {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: var(--k);
+      display: grid;
+      place-items: center;
+      animation: ldo .9s cubic-bezier(.77, 0, .18, 1) 1.3s forwards
+    }
+
+    #ld svg {
+      width: 84px;
+      fill: none;
+      stroke: var(--o);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-dasharray: 40;
+      stroke-dashoffset: 40;
+      animation: dr 1s ease .1s forwards
+    }
+
+    @keyframes dr {
+      to {
+        stroke-dashoffset: 0
+      }
+    }
+
+    @keyframes ldo {
+      to {
+        transform: translateY(-100%);
+        visibility: hidden
+      }
+    }
+
+    #bar {
+      position: fixed;
+      top: env(safe-area-inset-top, 0px);
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: var(--o);
+      transform: scaleX(0);
+      transform-origin: 0;
+      z-index: 30
+    }
+
+    header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: calc(16px + env(safe-area-inset-top, 0px)) 6vw 16px;
+      border-bottom: 1px solid transparent;
+      transition: background .4s, border-color .4s
+    }
+
+    header.sc {
+      background: rgba(37, 42, 49, .86);
+      backdrop-filter: blur(14px);
+      border-color: var(--ln)
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font: 800 1.35rem 'Bricolage Grotesque', sans-serif;
+      letter-spacing: -.03em
+    }
+
+    .logo b {
+      color: var(--o)
+    }
+
+    nav {
+      display: flex;
+      gap: 34px;
+      font-weight: 500
+    }
+
+    nav a {
+      color: var(--g);
+      transition: color .3s
+    }
+
+    nav a:hover {
+      color: var(--w)
+    }
+
+    .r {
+      opacity: 1
+    }
+
+    .js .r {
+      opacity: 0;
+      transform: translateY(36px);
+      transition: opacity .9s var(--e) calc(var(--d, 0)*.1s), transform .9s var(--e) calc(var(--d, 0)*.1s)
+    }
+
+    .js .r.in {
+      opacity: 1;
+      transform: none
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      min-height: 100svh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 28px;
+      padding: 150px 6vw 170px
+    }
+
+    .hero>* {
+      position: relative
+    }
+
+    .glow {
+      position: absolute;
+      right: -18vmax;
+      top: -12vmax;
+      width: 62vmax;
+      height: 62vmax;
+      border-radius: 50%;
+      background: radial-gradient(closest-side, rgba(13, 129, 201, .4), transparent);
+      will-change: transform
+    }
+
+    h1 {
+      font-size: clamp(3rem, 9vw, 8rem);
+      max-width: 11ch
+    }
+
+    h1 span {
+      display: inline-block;
+      overflow: hidden;
+      vertical-align: top;
+      padding-bottom: .1em;
+      margin-bottom: -.1em
+    }
+
+    h1 b {
+      display: inline-block;
+      font-weight: inherit;
+      transform: translateY(110%);
+      animation: up .9s var(--e) forwards;
+      animation-delay: calc(1.2s + var(--i)*.1s)
+    }
+
+    @keyframes up {
+      to {
+        transform: none
+      }
+    }
+
+    .sub {
+      max-width: 50ch;
+      font-size: 1.2rem;
+      color: var(--g)
+    }
+
+    .cta {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap
+    }
+
+    .cta .gh {
+      color: var(--w)
+    }
+
+    .road {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 70px;
+      border-top: 2px solid var(--ln)
+    }
+
+    .road::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 20px;
+      height: 3px;
+      background: repeating-linear-gradient(90deg, var(--o) 0 34px, transparent 34px 70px);
+      animation: rd 1s linear infinite
+    }
+
+    @keyframes rd {
+      to {
+        background-position: -70px 0
+      }
+    }
+
+    .mq {
+      background: var(--od);
+      color: var(--w);
+      overflow: hidden;
+      white-space: nowrap;
+      padding: 20px 0
+    }
+
+    #mq {
+      display: inline-flex;
+      align-items: center;
+      animation: mq 32s linear infinite;
+      font: 800 1.6rem 'Bricolage Grotesque', sans-serif;
+      letter-spacing: -.02em
+    }
+
+    #mq>* {
+      margin-right: 40px
+    }
+
+    @keyframes mq {
+      to {
+        transform: translateX(-50%)
+      }
+    }
+
+    .sec {
+      padding: clamp(80px, 12vw, 150px) 6vw
+    }
+
+    .alt {
+      background: var(--k2)
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 6vw;
+      max-width: 1200px;
+      margin: auto
+    }
+
+    .sticky {
+      position: sticky;
+      top: 120px;
+      align-self: start
+    }
+
+    .sticky p {
+      margin-top: 22px;
+      max-width: 40ch;
+      font-size: 1.1rem
+    }
+
+    .hd {
+      max-width: 1200px;
+      margin: 0 auto;
+      position: relative
+    }
+
+    .hd p {
+      margin-top: 18px;
+      max-width: 50ch;
+      font-size: 1.1rem
+    }
+
+    .rows {
+      list-style: none;
+      padding: 0;
+      border-top: 1px solid var(--ln)
+    }
+
+    .rows li {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 4px 22px;
+      padding: 30px 0;
+      border-bottom: 1px solid var(--ln)
+    }
+
+    .rows .i {
+      width: 34px;
+      height: 34px;
+      color: var(--o);
+      grid-row: span 2
+    }
+
+    .rows h3 {
+      font-size: 1.5rem;
+      transition: transform .4s var(--e)
+    }
+
+    .rows li:hover h3 {
+      transform: translateX(10px)
+    }
+
+    .tl {
+      list-style: none;
+      padding: 0 0 0 68px;
+      position: relative;
+      display: grid;
+      gap: 60px
+    }
+
+    .tl::before,
+    .tl::after {
+      content: "";
+      position: absolute;
+      left: 22px;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--ln)
+    }
+
+    .tl::after {
+      background: var(--o);
+      transform: scaleY(var(--p, 0));
+      transform-origin: top;
+      box-shadow: 0 0 18px var(--o)
+    }
+
+    .st {
+      position: relative;
+      opacity: .35;
+      transition: opacity .5s
+    }
+
+    .st.on {
+      opacity: 1
+    }
+
+    .st h3 {
+      font-size: 1.7rem
+    }
+
+    .st i {
+      position: absolute;
+      left: -68px;
+      top: -4px;
+      z-index: 1;
+      width: 46px;
+      height: 46px;
+      border-radius: 50%;
+      background: var(--k2);
+      border: 2px solid var(--ln);
+      display: grid;
+      place-items: center;
+      font: 700 1rem 'Bricolage Grotesque', sans-serif;
+      transition: .5s
+    }
+
+    .st.on i {
+      background: var(--o);
+      border-color: var(--o);
+      color: var(--k)
+    }
+
+    #events {
+      position: relative;
+      overflow: hidden
+    }
+
+    .bgt {
+      position: absolute;
+      top: 20px;
+      left: 0;
+      white-space: nowrap;
+      font: 800 clamp(7rem, 18vw, 16rem)/1 'Bricolage Grotesque', sans-serif;
+      color: transparent;
+      -webkit-text-stroke: 1px rgba(255, 255, 255, .1);
+      pointer-events: none;
+      will-change: transform
+    }
+
+    .evs {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 24px;
+      max-width: 1240px;
+      margin: 56px auto 0
+    }
+
+    .evs>div {
+      display: grid
+    }
+
+    .ev {
+      --m: radial-gradient(circle 13px at 0 calc(100% - 138px), #0000 97%, #000) left/51% 100% no-repeat, radial-gradient(circle 13px at 100% calc(100% - 138px), #0000 97%, #000) right/51% 100% no-repeat;
+      -webkit-mask: var(--m);
+      mask: var(--m);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 470px;
+      padding: 30px 28px 26px;
+      background: var(--k2);
+      border-radius: 12px;
+      transition: transform .25s ease-out;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .25)
+    }
+
+    .ev-poster {
+      position: relative;
+      width: calc(100% + 56px);
+      margin: -30px -28px 16px;
+      height: 190px;
+      overflow: hidden;
+      border-top-left-radius: 12px;
+      border-top-right-radius: 12px;
+      background: #111
+    }
+
+    .ev-poster img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center;
+      display: block;
+      transition: transform .45s cubic-bezier(.16, 1, .3, 1), filter .45s ease;
+      filter: brightness(.93)
+    }
+
+    .ev:hover .ev-poster img {
+      transform: scale(1.06);
+      filter: brightness(1.05)
+    }
+
+    .ev-poster::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to top, rgba(20, 24, 30, .92) 0%, rgba(20, 24, 30, .25) 50%, transparent 100%);
+      pointer-events: none
+    }
+
+    .ev-poster .tg {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      z-index: 2
+    }
+
+    .opt-thumb {
+      width: 46px;
+      height: 46px;
+      border-radius: 8px;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: #252a31;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, .2)
+    }
+
+    .ev::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at var(--mx, 50%) var(--my, 0%), rgba(56, 176, 240, .22), transparent 60%);
+      opacity: 0;
+      transition: opacity .4s;
+      pointer-events: none
+    }
+
+    .ev:hover::before {
+      opacity: 1
+    }
+
+    .ev>* {
+      position: relative
+    }
+
+    .ev h3 {
+      font-size: 1.65rem;
+      line-height: 1.25;
+      margin-top: auto
+    }
+
+    .ev .mut {
+      display: flex;
+      align-items: center;
+      gap: 8px
+    }
+
+    .tg {
+      align-self: flex-start;
+      padding: 5px 14px;
+      border-radius: 99px;
+      background: var(--o);
+      color: var(--k);
+      font-weight: 600;
+      font-size: .85rem
+    }
+
+    .fo {
+      margin-top: 12px;
+      padding-top: 22px;
+      border-top: 2px dashed rgba(255, 255, 255, .22);
+      display: grid;
+      gap: 12px
+    }
+
+    .pr {
+      font-weight: 700;
+      font-size: 1.2rem
+    }
+
+    .pr small {
+      color: var(--g);
+      font-weight: 400;
+      font-size: .85rem
+    }
+
+    .wz {
+      display: grid;
+      grid-template-columns: 1.7fr 1fr;
+      gap: 28px;
+      align-items: start;
+      max-width: 1200px;
+      margin: 56px auto 0
+    }
+
+    .main {
+      background: var(--w);
+      color: var(--k);
+      border-radius: 14px;
+      padding: clamp(22px, 4vw, 46px)
+    }
+
+    .main .mut {
+      color: #666
+    }
+
+    .main h3 {
+      font-size: 1.9rem;
+      margin-bottom: 6px
+    }
+
+    .main h4 {
+      margin: 22px 0 10px;
+      font-size: .95rem;
+      color: var(--od)
+    }
+
+    .stp {
+      display: flex;
+      gap: 8px;
+      list-style: none;
+      padding: 0;
+      margin-bottom: 32px
+    }
+
+    .stp li {
+      flex: 1;
+      font-size: .8rem;
+      font-weight: 600;
+      color: #8a8a8a;
+      transition: color .4s
+    }
+
+    .stp li::before {
+      content: "";
+      display: block;
+      height: 4px;
+      border-radius: 4px;
+      background: #dfe5ec;
+      margin-bottom: 8px;
+      transition: background .5s
+    }
+
+    .stp .on,
+    .stp .dn {
+      color: var(--k)
+    }
+
+    .stp .on::before,
+    .stp .dn::before {
+      background: var(--od)
+    }
+
+    .pn {
+      display: none
+    }
+
+    .pn.on {
+      display: block;
+      animation: pin .5s var(--e)
+    }
+
+    @keyframes pin {
+      from {
+        opacity: 0;
+        transform: translateX(30px)
+      }
+    }
+
+    .g2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 24px
+    }
+
+    .g2 .opt {
+      margin: 0
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-weight: 600;
+      font-size: .9rem
+    }
+
+    input {
+      padding: 14px 16px;
+      border: 1.5px solid #d3d9e0;
+      border-radius: 8px;
+      background: #f4f6f9;
+      outline: 0;
+      transition: .25s
+    }
+
+    input:focus {
+      border-color: var(--od);
+      box-shadow: 0 0 0 4px rgba(10, 116, 184, .16);
+      background: #fff
+    }
+
+    input.bad {
+      border-color: #c62828
+    }
+
+    em {
+      display: block;
+      min-height: 1.2em;
+      font-style: normal;
+      font-weight: 500;
+      font-size: .82rem;
+      color: #c62828
+    }
+
+    .er.shk {
+      animation: shk .4s
+    }
+
+    .opt {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      width: 100%;
+      text-align: left;
+      padding: 16px 18px;
+      margin-bottom: 10px;
+      background: #fff;
+      border: 1.5px solid #d3d9e0;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--k);
+      transition: transform .3s var(--e), border-color .3s, background .3s
+    }
+
+    .opt div {
+      flex: 1;
+      display: grid
+    }
+
+    .opt small {
+      color: #666;
+      display: flex;
+      gap: 6px;
+      align-items: center
+    }
+
+    .opt>.i {
+      color: var(--od)
+    }
+
+    .opt>span {
+      font-weight: 700
+    }
+
+    .opt:hover {
+      border-color: var(--od);
+      transform: translateX(4px)
+    }
+
+    .opt.sel {
+      border-color: var(--od);
+      background: #e7f2fb;
+      box-shadow: 0 0 0 3px rgba(10, 116, 184, .18)
+    }
+
+    .opt:disabled,
+    .opt:disabled:hover {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+      border-color: #d3d9e0;
+      background: #fff
+    }
+
+    .opt:disabled small {
+      color: #999
+    }
+
+    .tabs {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      margin: 22px 0 18px;
+      padding: 4px;
+      border-radius: 99px;
+      background: #e3e8ee
+    }
+
+    .tabs::before {
+      content: '';
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 4px;
+      width: calc(50% - 4px);
+      border-radius: 99px;
+      background: var(--od);
+      transform: translateX(var(--x, 0));
+      transition: transform .5s var(--e)
+    }
+
+    .tabs button {
+      position: relative;
+      padding: 12px;
+      border: 0;
+      border-radius: 99px;
+      background: 0;
+      color: var(--k);
+      font-weight: 600;
+      cursor: pointer;
+      transition: color .3s
+    }
+
+    .tabs .on {
+      color: var(--w)
+    }
+
+    .pts {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px
+    }
+
+    .pts .opt {
+      margin: 0;
+      animation: pin .45s var(--e) backwards;
+      animation-delay: calc(var(--i)*40ms)
+    }
+
+    .zones {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6vw;
+      max-width: 1200px;
+      margin: 56px auto 0
+    }
+
+    .zones h3 {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 2rem;
+      margin-bottom: 18px
+    }
+
+    .zones h3 .i {
+      width: 30px;
+      height: 30px;
+      color: var(--o)
+    }
+
+    .zones ul {
+      list-style: none;
+      padding: 0;
+      border-top: 1px solid var(--ln)
+    }
+
+    .zones li {
+      display: grid;
+      grid-template-columns: 150px 1fr;
+      gap: 16px;
+      padding: 15px 0;
+      border-bottom: 1px solid var(--ln)
+    }
+
+    .zones b {
+      display: block;
+      font-weight: 600;
+      transition: transform .4s var(--e)
+    }
+
+    .zones li:hover b {
+      transform: translateX(8px)
+    }
+
+    .bus {
+      max-width: 330px;
+      margin: 26px auto 0;
+      padding: 60px 24px 26px;
+      background: #ece6d8;
+      border: 2px solid var(--k);
+      border-radius: 90px 90px 24px 24px
+    }
+
+    .gr {
+      display: grid;
+      grid-template-columns: 1fr 1fr 22px 1fr 1fr;
+      gap: 10px;
+      align-items: center
+    }
+
+    .s {
+      aspect-ratio: 1;
+      border: 2px solid var(--k);
+      border-radius: 9px 9px 5px 5px;
+      background: #fffdf8;
+      color: var(--k);
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform .25s var(--e), background .25s
+    }
+
+    .s:hover {
+      transform: translateY(-3px);
+      border-color: var(--od)
+    }
+
+    .s.t {
+      background: repeating-linear-gradient(45deg, #e4ddcc 0 6px, #d8d0bd 6px 12px);
+      border-color: #c9c1ad;
+      color: #9b937f;
+      cursor: not-allowed
+    }
+
+    .s.t:hover {
+      transform: none;
+      border-color: #c9c1ad
+    }
+
+    .s.sel {
+      background: var(--od);
+      border-color: var(--od);
+      color: var(--w);
+      transform: scale(1.08)
+    }
+
+    .no {
+      animation: shk .4s
+    }
+
+    @keyframes shk {
+      25% {
+        transform: translateX(-5px)
+      }
+
+      75% {
+        transform: translateX(5px)
+      }
+    }
+
+    .drv {
+      display: grid;
+      place-items: center;
+      color: #777
+    }
+
+    .lg {
+      display: flex;
+      gap: 18px;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 20px;
+      font-size: .84rem
+    }
+
+    .lg i {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 2px solid var(--k);
+      vertical-align: -2px;
+      margin-right: 6px
+    }
+
+    .lg .t {
+      background: #d8d0bd;
+      border-color: #c9c1ad
+    }
+
+    .lg .sl {
+      background: var(--od);
+      border-color: var(--od)
+    }
+
+    .tot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 22px 0 14px;
+      padding: 18px 0;
+      border-block: 1px solid #e6e6e6;
+      font-weight: 600
+    }
+
+    .tot b {
+      font: 800 1.6rem 'Bricolage Grotesque', sans-serif;
+      color: var(--od)
+    }
+
+    .nt {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      font-size: .85rem;
+      color: #666
+    }
+
+    .nv {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 32px
+    }
+
+    .main .btn {
+      background: var(--od);
+      color: var(--w)
+    }
+
+    .main .btn:hover {
+      box-shadow: 0 12px 30px -10px var(--od)
+    }
+
+    .main .gh {
+      background: 0;
+      color: var(--k);
+      border-color: #cdd4dc
+    }
+
+    .sp {
+      width: 18px;
+      height: 18px;
+      border: 2px solid var(--w);
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin .7s linear infinite
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg)
+      }
+    }
+
+    .rc {
+      position: sticky;
+      top: 100px;
+      background: var(--k3);
+      border: 1px solid var(--ln);
+      border-radius: 14px;
+      padding: 28px
+    }
+
+    .rc h3 {
+      font-size: 1.5rem;
+      margin-bottom: 8px
+    }
+
+    .rw {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--ln);
+      color: var(--g)
+    }
+
+    .rw span {
+      flex: 1
+    }
+
+    .rw b {
+      color: var(--w);
+      font-weight: 600;
+      text-align: right
+    }
+
+    .rw.ok .i {
+      color: var(--o)
+    }
+
+    .tt {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 20px
+    }
+
+    .tt b {
+      font: 800 1.7rem 'Bricolage Grotesque', sans-serif;
+      color: var(--o)
+    }
+
+    .done {
+      text-align: center;
+      display: grid;
+      gap: 16px;
+      justify-items: center
+    }
+
+    .ok svg {
+      width: 80px;
+      fill: none;
+      stroke: var(--od);
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round
+    }
+
+    .ok circle {
+      stroke-dasharray: 151;
+      stroke-dashoffset: 151;
+      animation: dr .9s ease forwards
+    }
+
+    .ok path {
+      stroke-dasharray: 40;
+      stroke-dashoffset: 40;
+      animation: dr .5s ease .7s forwards
+    }
+
+    .tk {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      width: 100%;
+      max-width: 620px;
+      text-align: left;
+      border: 1.5px dashed #bdbdbd;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 8px
+    }
+
+    .tk dl {
+      padding: 22px 24px;
+      display: grid;
+      gap: 12px
+    }
+
+    .tk dl div {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px
+    }
+
+    .tk dt {
+      color: #666
+    }
+
+    .tk dd {
+      font-weight: 600;
+      text-align: right
+    }
+
+    .qb {
+      background: var(--k);
+      color: var(--w);
+      padding: 22px;
+      display: grid;
+      gap: 12px;
+      justify-items: center;
+      align-content: center;
+      max-width: 210px;
+      text-align: center;
+      font-size: .8rem
+    }
+
+    #qr {
+      background: #fff;
+      padding: 8px;
+      border-radius: 6px;
+      line-height: 0;
+      min-width: 150px;
+      min-height: 150px;
+      display: grid;
+      place-items: center
+    }
+
+    #qr img {
+      display: block;
+      max-width: 100%;
+      height: auto
+    }
+
+    .ac {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px
+    }
+
+    .scanwrap {
+      position: relative;
+      aspect-ratio: 4/3;
+      max-width: 340px;
+      margin: 0 auto;
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--k)
+    }
+
+    .scanwrap video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block
+    }
+
+    .scanwrap .frame {
+      position: absolute;
+      inset: 13%;
+      border: 3px solid var(--o);
+      border-radius: 16px;
+      box-shadow: 0 0 0 999px rgba(37, 42, 49, .45);
+      pointer-events: none
+    }
+
+    #codeIn {
+      text-transform: uppercase;
+      letter-spacing: .04em
+    }
+
+    .res {
+      margin-top: 22px;
+      padding: 18px 20px;
+      border-radius: 10px;
+      display: flex;
+      gap: 14px;
+      align-items: flex-start;
+      animation: pin .4s var(--e)
+    }
+
+    .res .i {
+      flex: none;
+      margin-top: 1px
+    }
+
+    .res b {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 1.05rem
+    }
+
+    .res.ok2 {
+      background: #e7f6ee;
+      color: #0f5132
+    }
+
+    .res.warn {
+      background: #fff6e0;
+      color: #7a5600
+    }
+
+    .res.bad {
+      background: #fdeceb;
+      color: #8a1f16
+    }
+
+    .qty-btn {
+      flex: 1;
+      min-width: 52px;
+      height: 48px;
+      border-radius: 12px;
+      border: 1.5px solid #d3d9e0;
+      background: #fff;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--k);
+      cursor: pointer;
+      transition: all .25s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center
+    }
+
+    .qty-btn:hover {
+      border-color: var(--od);
+      background: #f4f8fb
+    }
+
+    .qty-btn.sel {
+      border-color: var(--od);
+      background: var(--od);
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(10, 116, 184, .25)
+    }
+
+    .qr-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      width: 100%;
+      max-width: 620px;
+      margin-top: 8px
+    }
+
+    .qr-card {
+      background: var(--k);
+      color: var(--w);
+      padding: 18px 14px;
+      border-radius: 10px;
+      display: grid;
+      gap: 10px;
+      justify-items: center;
+      text-align: center;
+      font-size: .82rem
+    }
+
+    .qr-card .qr-box {
+      background: #fff;
+      padding: 8px;
+      border-radius: 6px;
+      line-height: 0;
+      min-width: 150px;
+      min-height: 150px;
+      display: grid;
+      place-items: center
+    }
+
+    .qr-card .qr-ref {
+      font: 700 1rem 'Bricolage Grotesque', sans-serif;
+      color: var(--o);
+      letter-spacing: .05em
+    }
+
+    .tk-group {
+      margin-top: 14px;
+      display: grid;
+      gap: 10px
+    }
+
+    .tk-card {
+      background: #fff;
+      border: 1.5px solid #d3d9e0;
+      border-radius: 10px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      transition: all .2s ease
+    }
+
+    .tk-card.valide {
+      border-color: #2fb36d;
+      background: #f4faf6
+    }
+
+    .tk-card.utilise {
+      border-color: #e09825;
+      background: #fffdf5
+    }
+
+    .tk-tag {
+      font-size: .75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border-radius: 99px;
+      letter-spacing: .03em
+    }
+
+    .tk-tag.ok {
+      background: #d1f3df;
+      color: #0f5132
+    }
+
+    .tk-tag.warn {
+      background: #ffe8b5;
+      color: #7a5600
+    }
+
+    #log:not(:empty)::before {
+      content: "Historique de cette session";
+      display: block;
+      font-weight: 600;
+      margin-top: 28px;
+      margin-bottom: 8px;
+      font-size: .9rem;
+      color: var(--k)
+    }
+
+    .logr {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 2px;
+      border-bottom: 1px solid #eee;
+      font-size: .85rem;
+      color: #666
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 40px 6vw;
+      border-top: 1px solid var(--ln)
+    }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      transform: translate(-50%, 30px);
+      opacity: 0;
+      pointer-events: none;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      max-width: 92vw;
+      padding: 14px 20px;
+      background: var(--k);
+      border: 1px solid var(--o);
+      border-radius: 10px;
+      z-index: 50;
+      transition: .4s var(--e)
+    }
+
+    #toast.on {
+      opacity: 1;
+      transform: translate(-50%, 0)
+    }
+
+    #toast .i {
+      color: var(--o)
+    }
+
+    @media(max-width:860px) {
+
+      .split,
+      .wz {
+        grid-template-columns: 1fr
+      }
+
+      .sticky,
+      .rc {
+        position: static
+      }
+
+      nav {
+        display: none
+      }
+
+      .g2 {
+        grid-template-columns: 1fr
+      }
+
+      .tk {
+        grid-template-columns: 1fr
+      }
+
+      .qb {
+        max-width: none
+      }
+
+      .zones {
+        grid-template-columns: 1fr
+      }
+    }
+
+    @media(max-width:560px) {
+      .pts {
+        grid-template-columns: 1fr
+      }
+    }
+
+    /* ===== Animations améliorées ===== */
+    .js .r {
+      opacity: 0;
+      transform: translateY(40px) scale(.98);
+      filter: blur(6px);
+      transition: opacity 1s var(--e) calc(var(--d, 0)*.08s), transform 1s var(--e) calc(var(--d, 0)*.08s), filter 1s var(--e) calc(var(--d, 0)*.08s)
+    }
+
+    .js .r.in {
+      opacity: 1;
+      transform: none;
+      filter: none
+    }
+
+    .glow {
+      animation: breathe 9s ease-in-out infinite;
+      pointer-events: none
+    }
+
+    .glow2 {
+      position: absolute;
+      left: -16vmax;
+      bottom: -22vmax;
+      width: 50vmax;
+      height: 50vmax;
+      border-radius: 50%;
+      background: radial-gradient(closest-side, rgba(224, 165, 38, .2), transparent);
+      animation: drift 16s ease-in-out infinite alternate;
+      pointer-events: none
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(520px circle at var(--hx, 70%) var(--hy, 30%), rgba(56, 176, 240, .13), transparent 60%);
+      pointer-events: none
+    }
+
+    @keyframes breathe {
+      50% {
+        scale: 1.12;
+        opacity: .75
+      }
+    }
+
+    @keyframes drift {
+      to {
+        translate: 12vmax -8vmax;
+        scale: 1.15
+      }
+    }
+
+    .btn {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate
+    }
+
+    .btn::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      z-index: -1;
+      background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, .4) 50%, transparent 70%);
+      transform: translateX(-120%);
+      transition: transform .8s var(--e)
+    }
+
+    .btn:hover::after {
+      transform: translateX(120%)
+    }
+
+    nav a {
+      position: relative
+    }
+
+    nav a::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -4px;
+      height: 2px;
+      background: var(--o);
+      transform: scaleX(0);
+      transform-origin: right;
+      transition: transform .4s var(--e)
+    }
+
+    nav a:hover::after {
+      transform: scaleX(1);
+      transform-origin: left
+    }
+
+    .mq {
+      -webkit-mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+      mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)
+    }
+
+    .mq:hover #mq {
+      animation-play-state: paused
+    }
+
+    .rows .i {
+      transition: transform .5s var(--e)
+    }
+
+    .rows li:hover .i {
+      transform: rotate(-8deg) scale(1.15)
+    }
+
+    .st.on i {
+      animation: pop .55s var(--e)
+    }
+
+    .tg {
+      animation: glowtag 2.8s ease-in-out infinite
+    }
+
+    @keyframes glowtag {
+      50% {
+        box-shadow: 0 0 0 6px rgba(224, 165, 38, .18)
+      }
+    }
+
+    @keyframes pop {
+      0% {
+        transform: scale(.6)
+      }
+
+      60% {
+        transform: scale(1.15)
+      }
+    }
+
+    .qr-card {
+      animation: popin .6s var(--e) backwards
+    }
+
+    .qr-card:nth-child(2) {
+      animation-delay: .09s
+    }
+
+    .qr-card:nth-child(3) {
+      animation-delay: .18s
+    }
+
+    .qr-card:nth-child(4) {
+      animation-delay: .27s
+    }
+
+    .qr-card:nth-child(5) {
+      animation-delay: .36s
+    }
+
+    @keyframes popin {
+      from {
+        opacity: 0;
+        transform: translateY(24px) scale(.92)
+      }
+    }
+
+    .qty-btn:active,
+    .opt:active {
+      transform: scale(.97)
+    }
+
+    @media(prefers-reduced-motion:reduce) {
+      * {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important
+      }
+    }
+  </style>
+</head>
+
+<body id="top">
+  <div id="ld"><svg viewBox="0 0 32 32">
+      <path d="M6 10h20M16 10v14" />
+    </svg></div>
+  <i id="bar"></i>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-ck" viewBox="0 0 24 24">
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </symbol>
+      <symbol id="i-pin" viewBox="0 0 24 24">
+        <path d="M12 21s7-6.2 7-11.5a7 7 0 0 0-14 0C5 14.8 12 21 12 21z" />
+        <circle cx="12" cy="9.5" r="2.5" />
+      </symbol>
+      <symbol id="i-cal" viewBox="0 0 24 24">
+        <rect x="3.5" y="5" width="17" height="15.5" rx="2.5" />
+        <path d="M3.5 10h17M8 3v4M16 3v4" />
+      </symbol>
+      <symbol id="i-st" viewBox="0 0 24 24">
+        <path d="M7 4.5A1.5 1.5 0 0 1 8.5 3h5A1.5 1.5 0 0 1 15 4.5V12H7z" />
+        <path d="M5 12h14v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z" />
+        <path d="M8 19v2M16 19v2" />
+      </symbol>
+      <symbol id="i-qr" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <path d="M14 14h3v3h-3zM20 14v.01M14 20h3M20 17v4" />
+      </symbol>
+      <symbol id="i-sh" viewBox="0 0 24 24">
+        <path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z" />
+        <path d="M8.5 12l2.5 2.5 4.5-5" />
+      </symbol>
+      <symbol id="i-mu" viewBox="0 0 24 24">
+        <path d="M9 18V6l10-2v12" />
+        <circle cx="6.5" cy="18" r="2.5" />
+        <circle cx="16.5" cy="16" r="2.5" />
+      </symbol>
+      <symbol id="i-cd" viewBox="0 0 24 24">
+        <rect x="3" y="5.5" width="18" height="13" rx="2.5" />
+        <path d="M3 10h18M7 15h4" />
+      </symbol>
+      <symbol id="i-sm" viewBox="0 0 24 24">
+        <rect x="7" y="2.5" width="10" height="19" rx="2.5" />
+        <path d="M11 18.5h2" />
+      </symbol>
+      <symbol id="i-wh" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="2" />
+        <path d="M3 12h7M14 12h7M12 14v7" />
+      </symbol>
+      <symbol id="i-cl" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 7v5l3 2" />
+      </symbol>
+      <symbol id="i-scan" viewBox="0 0 24 24">
+        <path
+          d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16M4 12h16" />
+      </symbol>
+      <symbol id="i-warn" viewBox="0 0 24 24">
+        <path d="M10.3 3.9L2.7 18a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+        <path d="M12 9.5v4.2M12 17v.01" />
+      </symbol>
+      <symbol id="i-x" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M9 9l6 6M15 9l-6 6" />
+      </symbol>
+    </defs>
+  </svg>
+
+  <header id="nav">
+    <a class="logo" href="#top"><svg width="30" height="30" viewBox="0 0 32 32">
+        <rect width="32" height="32" rx="8" fill="#0a74b8" />
+        <path d="M8 11h16M16 11v12" stroke="#fff" stroke-width="3.5" stroke-linecap="round" fill="none" />
+      </svg>Tick<b>Way</b></a>
+    <nav><a href="#service">Le service</a><a href="#etapes">Fonctionnement</a><a href="#events">Événements</a><a
+        href="#relais">Points relais</a></nav>
+    <a class="btn" href="#reserver">Réserver</a>
+  </header>
+
+  <main>
+    <section class="hero" id="hero">
+      <div class="glow" id="glow"></div>
+      <div class="glow2" aria-hidden="true"></div>
+      <h1 id="h1">Le concert commence dès le trajet.</h1>
+      <p class="sub r" style="--d:14">TickWay réserve votre trajet en véhicule dédié, depuis l’un de nos points
+        relais d’Abidjan Nord ou Sud jusqu’à la salle. Simple, sûr, sans stress.</p>
+      <div class="cta r" style="--d:16"><a class="btn" href="#reserver">Réserver ma place</a><a class="btn gh"
+          href="#service">Découvrir le service</a></div>
+      <div class="road"></div>
+    </section>
+    <div class="mq">
+      <div id="mq"></div>
+    </div>
+
+    <section class="sec" id="service">
+      <div class="split">
+        <div class="sticky r">
+          <h2>Un trajet pensé pour vos soirées.</h2>
+          <p class="mut">TickWay réserve pour vous votre place à bord d’un véhicule dédié, au départ d’un
+            point relais d’Abidjan Nord ou Sud, jusqu’à l’événement. Plus de stationnement à chercher, plus
+            de retour incertain.</p>
+        </div>
+        <ul class="rows" id="rows"></ul>
+      </div>
+    </section>
+
+    <section class="sec alt" id="etapes">
+      <div class="split">
+        <div class="sticky r">
+          <h2>Votre route, étape par étape.</h2>
+          <p class="mut">Quatre étapes, quelques minutes. Chaque choix est validé avant de passer au suivant.
+          </p>
+        </div>
+        <ol class="tl" id="tl"></ol>
+      </div>
+    </section>
+
+    <section class="sec" id="events">
+      <div class="bgt" id="bgt">Kiff No Beat, Tiakola, Fally Ipupa, Himra, Meiway</div>
+      <div class="hd r">
+        <h2>Les prochains rendez-vous.</h2>
+        <p class="mut">Choisissez votre soirée, nous nous occupons du trajet.</p>
+      </div>
+      <div class="evs" id="evs"></div>
+    </section>
+
+    <section class="sec alt" id="relais">
+      <div class="hd r">
+        <h2>16 points relais, du nord au sud.</h2>
+        <p class="mut">Montez à bord au plus près de chez vous : vous choisissez votre point au moment de la
+          réservation.</p>
+      </div>
+      <div class="zones" id="zs"></div>
+    </section>
+    <section class="sec" id="reserver">
+      <div class="hd r">
+        <h2>Réservez votre place.</h2>
+        <p class="mut">Vos informations, votre événement, votre point relais, puis le paiement sécurisé.</p>
+      </div>
+      <div class="wz">
+        <div class="main r" id="main">
+          <ol class="stp" id="stp"></ol>
+          <form id="f" novalidate>
+            <section class="pn on">
+              <h3>Vos informations</h3>
+              <p class="mut">Pour vous envoyer votre reçu et votre QR code.</p>
+              <div class="g2">
+                <label>Prénom<input name="pr" autocomplete="given-name" placeholder="Awa"><em></em></label>
+                <label>Nom<input name="nm" autocomplete="family-name" placeholder="Koné"><em></em></label>
+                <label>Téléphone<input name="tel" type="tel" autocomplete="tel"
+                    placeholder="07 00 00 00 00"><em></em></label>
+                <label>Adresse e-mail<input name="ml" type="email" autocomplete="email"
+                    placeholder="awa@exemple.ci"><em></em></label>
+              </div>
+            </section>
+            <section class="pn">
+              <h3>Votre événement</h3>
+              <div id="eo"></div><em class="er"></em>
+              <div id="qtyWrap" style="margin-top:24px;padding-top:20px;border-top:1px solid #e1e7ec">
+                <label style="display:block;font-weight:700;margin-bottom:6px">Nombre de tickets (max. 5)</label>
+                <p class="mut" style="margin:0 0 12px;font-size:.9rem">Chaque ticket possède son propre QR code unique.
+                  Tous les QR codes seront envoyés à votre adresse e-mail.</p>
+                <div id="qtyBtns" style="display:flex;gap:10px;flex-wrap:wrap">
+                  <button type="button" class="qty-btn sel" data-q="1">1</button>
+                  <button type="button" class="qty-btn" data-q="2">2</button>
+                  <button type="button" class="qty-btn" data-q="3">3</button>
+                  <button type="button" class="qty-btn" data-q="4">4</button>
+                  <button type="button" class="qty-btn" data-q="5">5</button>
+                </div>
+                <div id="qtySub" style="margin-top:10px;font-size:.9rem;font-weight:600;color:var(--od)">1 ticket
+                  sélectionné (1 QR code envoyé par e-mail)</div>
+              </div>
+            </section>
+            <section class="pn">
+              <h3>Votre point relais</h3>
+              <p class="mut">Choisissez votre zone, puis le point où vous monterez à bord.</p>
+              <div class="tabs" id="zt"></div>
+              <div class="pts" id="ro"></div><em class="er"></em>
+            </section>
+            <section class="pn">
+              <h3>Paiement</h3>
+              <p class="mut">Paiement disponible via Wave pour le moment ; les autres moyens arrivent
+                bientôt.</p>
+              <div id="pm" style="margin-top:20px"></div>
+              <div class="tot"><span>Total à payer</span><b id="tt"></b></div>
+              <p class="nt"><svg class="i">
+                  <use href="#i-sh" />
+                </svg>Paiement sécurisé, vos données restent protégées.</p>
+              <div id="waveWait" hidden
+                style="margin-top:22px;padding:20px;border-radius:10px;border:1.5px dashed #0a74b8;background:#f0f7fc;display:grid;gap:14px">
+                <div id="waveMsgBox">
+                  <p style="margin:0 0 8px;font-size:1.05rem;font-weight:700;color:#0a74b8">Paiement Wave (<span id="waveAmt"></span>)</p>
+                  <p id="waveMsgText" style="margin:0 0 10px;font-size:.95rem;line-height:1.45;color:#252a31"></p>
+                </div>
+                <div class="ac" style="justify-content:flex-start">
+                  <button type="button" class="btn" id="waveReopen"><svg class="i"><use href="#i-sh" /></svg>Ouvrir le lien Wave</button>
+                  <button type="button" class="btn gh" id="waveDone"><svg class="i"><use href="#i-ck" /></svg>J’ai terminé mon paiement</button>
+                </div>
+              </div>
+            </section>
+            <div class="nv"><button type="button" class="btn gh" id="bk">Retour</button><button type="button"
+                class="btn" id="nx">Continuer</button></div>
+          </form>
+          <div class="done" id="dn" hidden></div>
+        </div>
+        <aside class="rc r" id="rc" style="--d:2"></aside>
+      </div>
+    </section>
+  </main>
+
+  <section class="sec" id="controle" hidden>
+    <div class="hd">
+      <h2>Contrôle des billets.</h2>
+      <p class="mut">Scannez le QR code présenté par le client avec la caméra ou par photo pour valider l’entrée (usage unique).</p>
+    </div>
+    <div class="main" style="max-width:640px;margin:48px auto 0">
+      <div id="authBar" style="margin-bottom:20px;padding:14px 16px;border-radius:10px;border:1.5px solid #d3d9e0;background:#f4f7fa">
+        <div id="authLocked" style="display:grid;gap:10px">
+          <div style="font-weight:700;color:var(--k);font-size:.95rem">🔒 Connexion équipe requise pour valider les billets</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="keyIn" type="password" placeholder="Clé secrète équipe" autocomplete="current-password" style="flex:1;min-width:190px;padding:10px 14px">
+            <button type="button" class="btn" id="keySaveBtn" style="padding:10px 18px">Activer</button>
+          </div>
+          <small style="color:#64748b">Saisissez la clé une seule fois sur ce téléphone (par défaut : <code>cle_secrete_equipe_terrain_2026</code>).</small>
+        </div>
+        <div id="authUnlocked" hidden style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <span style="font-weight:600;color:#0f5132;font-size:.92rem">🔓 Appareil équipe actif — Scan prêt</span>
+          <button type="button" class="btn gh" id="keyLogoutBtn" style="padding:6px 12px;font-size:.82rem;border-radius:8px">Déconnecter</button>
+        </div>
+      </div>
+
+      <div class="scanwrap"><video id="vid" playsinline autoplay muted></video>
+        <div class="frame"></div>
+      </div>
+      <p class="mut" id="camMsg" style="text-align:center;margin-top:12px">Caméra prête. Appuyez sur « Démarrer le scanner ».</p>
+      <div class="ac">
+        <button type="button" class="btn" id="camBtn"><svg class="i">
+            <use href="#i-scan" />
+          </svg>Démarrer le scanner</button>
+        <label class="btn gh" for="qrFileIn" style="cursor:pointer;margin:0"><svg class="i">
+            <use href="#i-qr" />
+          </svg>Scanner une photo</label>
+        <input id="qrFileIn" type="file" accept="image/*" capture="environment" hidden>
+      </div>
+
+      <div id="res" aria-live="polite"></div>
+
+      <h4>Ou saisir la référence manuellement</h4>
+      <div class="g2" style="grid-template-columns:1fr auto">
+        <label>Référence du billet<input id="codeIn" placeholder="TW-XXXX-XXXX" autocomplete="off"
+            autocapitalize="characters"></label>
+        <button type="button" class="btn gh" id="codeBtn" style="align-self:end;height:52px">Vérifier</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </section>
+
+  <footer><a class="logo" href="#top"><svg width="26" height="26" viewBox="0 0 32 32">
+        <rect width="32" height="32" rx="8" fill="#0a74b8" />
+        <path d="M8 11h16M16 11v12" stroke="#fff" stroke-width="3.5" stroke-linecap="round" fill="none" />
+      </svg>Tick<b>Way</b></a>
+    <p class="mut">Abidjan, Côte d’Ivoire</p><a class="mut" href="#controle"
+      style="display:inline-flex;align-items:center;gap:6px"><svg class="i">
+        <use href="#i-sh" />
+      </svg>Espace équipe</a>
+    <p class="mut">© 2026 TickWay</p>
+  </footer>
+  <div id="toast" role="status"><svg class="i">
+      <use href="#i-ck" />
+    </svg><span></span></div>
+
+  <script>
+    document.documentElement.classList.add('js');
+    function getApiBase() {
+      const custom = (localStorage.getItem('tickway_api_url') || '').trim().replace(/\/$/, '');
+      if (custom) return custom;
+      if (location.protocol === 'file:' || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') && location.port !== '3000')) {
+        return 'http://localhost:3000';
+      }
+      return '';
+    }
+    const API_BASE = getApiBase();
+    function isStaticOnlyHost() {
+      const custom = (localStorage.getItem('tickway_api_url') || '').trim();
+      if (custom) return false;
+      return location.protocol === 'file:' || location.hostname.endsWith('.netlify.app');
+    }
+
+    function hashStr(s) {
+      let h = 2166136261;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(36);
+    }
+
+    function buildTicketQrText(ref, meta) {
+      const origin = (location.protocol.startsWith('http') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')
+        ? location.origin
+        : 'https://tickway.netlify.app';
+      if (!meta || !meta.evId) {
+        return `${origin}/#controle?c=${encodeURIComponent(ref)}`;
+      }
+      const cleanNom = (meta.nom || '').trim().slice(0, 22).replace(/[.|~]/g, ' ').replace(/\s+/g, '_');
+      const qtyPart = `${meta.num || 1}_${meta.qty || 1}`;
+      const core = `${ref}|${meta.evId}|${meta.z}|${meta.pt}|${qtyPart}|${cleanNom}`;
+      const sig = hashStr(core + '|TW2026CI');
+      const d = `${meta.evId}.${meta.z}.${meta.pt}.${qtyPart}.${sig}.${cleanNom}`;
+      return `${origin}/#controle?c=${encodeURIComponent(ref)}&d=${encodeURIComponent(d)}`;
+    }
+
+    function verifyAndDecodeQrToken(ref, dToken) {
+      try {
+        const parts = (dToken || '').split('.');
+        if (parts.length < 5) return { validSignature: false };
+        const [evId, zStr, ptStr, qtyPart, sig, ...rest] = parts;
+        const cleanNom = rest.join('.');
+        const core = `${ref}|${evId}|${zStr}|${ptStr}|${qtyPart}|${cleanNom}`;
+        const expected = hashStr(core + '|TW2026CI');
+        if (sig !== expected) return { validSignature: false };
+        const ev = EV.find(x => x.id === evId);
+        const z = parseInt(zStr, 10);
+        const pt = parseInt(ptStr, 10);
+        const rel = RL[z] && RL[z].p[pt];
+        const [numStr, qtyStr] = (qtyPart || '1_1').split('_');
+        const num = parseInt(numStr, 10) || 1;
+        const qty = parseInt(qtyStr, 10) || 1;
+        const rawNom = cleanNom.replace(/_/g, ' ').trim() || 'Passager TickWay';
+        const passager = qty > 1 ? `${rawNom} (Ticket ${num}/${qty})` : rawNom;
+        return {
+          validSignature: true,
+          reference: ref,
+          passager,
+          evenement: ev ? ev.n : 'Événement TickWay',
+          date: ev ? (ev.d + (ev.h ? ', ' + ev.h : '')) : '',
+          zone: RL[z] ? RL[z].n : 'Abidjan',
+          pointRelais: rel ? `${rel[0]}, ${rel[1]}` : 'Point relais',
+          montant: ev ? ev.p : 6000,
+          quantite: qty
+        };
+      } catch (err) {
+        return { validSignature: false };
+      }
+    }
+
+    const LOCAL_DB_KEY = 'tickway_reservations_db';
+    function localDbLoad() {
+      try {
+        const db = JSON.parse(localStorage.getItem(LOCAL_DB_KEY) || '{}');
+        if (!db['TW-9KGY-RDUC']) {
+          db['TW-9KGY-RDUC'] = {
+            reference: 'TW-9KGY-RDUC',
+            passager: 'Karim Ouattara',
+            evenement: 'Kiff No Beat',
+            date: 'Sam. 28 novembre 2026',
+            zone: 'Abidjan Nord',
+            pointRelais: 'Yopougon, Zone 2 - Cosmos',
+            montant: 6000,
+            modePaiement: 'Wave',
+            statut: 'valide',
+            creeLe: new Date().toISOString(),
+            utiliseLe: null
+          };
+          localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
+        }
+        return db;
+      } catch (err) { return {}; }
+    }
+    function localDbSaveTickets(tickets, d, e, r, pm) {
+      try {
+        const db = localDbLoad();
+        const baseNom = (d.pr + ' ' + d.nm).trim();
+        const total = tickets.length;
+        tickets.forEach((t, idx) => {
+          const ref = t.reference || t.code || t;
+          db[ref] = {
+            reference: ref,
+            passager: total > 1 ? `${baseNom} (Ticket ${idx + 1}/${total})` : baseNom,
+            evenement: e.n,
+            date: e.d + (e.h ? ', ' + e.h : ''),
+            zone: r.z,
+            pointRelais: r.c + ', ' + r.l,
+            montant: e.p,
+            modePaiement: pm,
+            statut: 'valide',
+            creeLe: new Date().toISOString(),
+            utiliseLe: null
+          };
+        });
+        localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
+      } catch (err) { }
+    }
+    function localValidateTicket(code, dToken) {
+      const db = localDbLoad();
+      const t = db[code];
+      if (t) {
+        if (t.statut === 'utilise') {
+          return {
+            statut: 'deja_utilise',
+            reference: t.reference,
+            passager: t.passager,
+            evenement: t.evenement,
+            date: t.date,
+            zone: t.zone,
+            pointRelais: t.pointRelais,
+            montant: t.montant,
+            utiliseLe: t.utiliseLe
+          };
+        }
+        t.statut = 'utilise';
+        t.utiliseLe = new Date().toISOString();
+        try { localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db)); } catch (err) { }
+        return {
+          statut: 'valide_maintenant',
+          reference: t.reference,
+          passager: t.passager,
+          evenement: t.evenement,
+          date: t.date,
+          zone: t.zone,
+          pointRelais: t.pointRelais,
+          montant: t.montant,
+          utiliseLe: t.utiliseLe
+        };
+      }
+      if (dToken) {
+        const decoded = verifyAndDecodeQrToken(code, dToken);
+        if (!decoded.validSignature) {
+          return { statut: 'invalide', reference: code, message: 'Signature QR code invalide ou billet falsifié.' };
+        }
+        const nowIso = new Date().toISOString();
+        db[code] = {
+          reference: code,
+          passager: decoded.passager,
+          evenement: decoded.evenement,
+          date: decoded.date,
+          zone: decoded.zone,
+          pointRelais: decoded.pointRelais,
+          montant: decoded.montant,
+          modePaiement: 'Wave',
+          statut: 'utilise',
+          creeLe: nowIso,
+          utiliseLe: nowIso
+        };
+        try { localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db)); } catch (err) { }
+        return {
+          statut: 'valide_maintenant',
+          reference: code,
+          passager: decoded.passager,
+          evenement: decoded.evenement,
+          date: decoded.date,
+          zone: decoded.zone,
+          pointRelais: decoded.pointRelais,
+          montant: decoded.montant,
+          utiliseLe: nowIso
+        };
+      }
+      return { statut: 'introuvable', reference: code };
+    }
+    const $ = (s, e = document) => e.querySelector(s), $$ = (s, e = document) => [...e.querySelectorAll(s)],
+      ic = n => `<svg class="i"><use href="#i-${n}"/></svg>`, fmt = n => n.toLocaleString('fr-FR') + ' FCFA',
+      esc = s => s.replace(/[&<>"]/g, c => '&#' + c.charCodeAt(0) + ';');
+    const EV = [
+      {
+        id: 'k',
+        n: 'Kiff No Beat',
+        t: 'Concert',
+        m: 'Novembre',
+        d: 'Sam. 28 novembre 2026',
+        h: '',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/1d4210fa-db6a-4ec1-8ebc-595153290698/conversions/01M4H1BRWF15FZ5C7KX94KBDF7-thumbnail.jpg'
+      },
+      {
+        id: 'sb',
+        n: 'Serge Beynaud',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Sam. 5 décembre 2026',
+        h: '20 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/e4ef1550-863d-5f48-85cb-b862ddca36f7/conversions/beynaud-en-concert-a-lesplanade-du-parc-des-expos-6a8340c162e48-1786986739-thumbnail.jpg'
+      },
+      {
+        id: 'dm',
+        n: 'Dena Mwana',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Dim. 13 décembre 2026',
+        h: '16 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/a3433dd3-de52-489c-b6b6-c5442a95947a/conversions/event_image_1792544807369-thumbnail.jpg'
+      },
+      {
+        id: 'mw',
+        n: 'Meiway',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Dim. 13 & Sam. 19 décembre 2026',
+        h: '20 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/c61c8aeb-b153-5744-8ef9-3c8e669337d0/conversions/le-double-concert-de-meiway-et-le-zo-gang-6aa021ee42802-1788879375-1788881476-thumbnail.jpg'
+      },
+      {
+        id: 't',
+        n: 'Tiakola',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Dim. 20 décembre 2026',
+        h: '',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/b6785ac0-ba3d-4e34-a512-d60c3b865555/conversions/01M4BJNJVQ4BG67YQ9YF31M22V-thumbnail.jpg'
+      },
+      {
+        id: 'lp',
+        n: 'Les Patrons',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Dim. 20 décembre 2026',
+        h: '20 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/3d605f31-5377-4957-9ded-8f5788290dfe/conversions/les-patrons-en-concert-live-6ac65670046a9-thumbnail.jpg'
+      },
+      {
+        id: 'f',
+        n: 'Fally Ipupa',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Jeu. 24 & Ven. 25 décembre 2026',
+        h: '20 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/80f66712-afe1-5c07-8ed4-c6be1585372f/conversions/fally-ipupa-en-concert-au-stade-fhb-6a9d0a77421a8-1788676756-1788677536-thumbnail.jpg'
+      },
+      {
+        id: 'h',
+        n: 'Himra',
+        t: 'Concert',
+        m: 'Décembre',
+        d: 'Sam. 26 décembre 2026',
+        h: '20 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/5fc0a8a1-93b3-504d-9e97-e90c52a5aa2a/conversions/himra-en-concert-au-stade-ebimpe-6a834348e6886-1786986739-thumbnail.jpg'
+      },
+      {
+        id: 'm',
+        n: 'Mother Africa Festival',
+        t: 'Festival',
+        m: 'Décembre',
+        d: 'Dim. 27 & Lun. 28 décembre 2026',
+        h: '18 h 00',
+        p: 6000,
+        img: 'https://media.tikerama.com/events/cover/e3ce4e77-e970-44e9-8acc-128728cb9370/conversions/dOrBPs2KlPg5yGIxRKnIk2CKq7E5FmqYHlRlsz5F-thumbnail.jpg'
+      }
+    ];
+    const RL = [
+      {
+        n: 'Abidjan Nord',
+        p: [
+          ['Yopougon', 'Zone 1 - Carrefour Niangon Supeco'],
+          ['Yopougon', 'Zone 2 - Cosmos'],
+          ['Angré', 'CNPS'],
+          ['Riviera 2', 'Casino'],
+          ['Abobo', 'Mairie d’Abobo'],
+          ['Adjamé', 'Gare routière'],
+          ['Bingerville', 'Késé'],
+          ['Anyama', 'Carrefour Anyama'],
+          ['Songon', 'Terminus SOTRA']
+        ]
+      },
+      {
+        n: 'Abidjan Sud',
+        p: [
+          ['Cocody', 'UFHB'],
+          ['Plateau', 'Cathédrale du Plateau'],
+          ['Marcory', 'Prima Center'],
+          ['Treichville', 'Gare SOTRA'],
+          ['Koumassi', 'Grand Marché'],
+          ['Port-Bouët', 'Mairie de Port-Bouët'],
+          ['Grand-Bassam', 'Carrefour Grand-Bassam']
+        ]
+      }
+    ];
+    const PT = () => S.pt == null ? null : { z: RL[S.z].n, c: RL[S.z].p[S.pt][0], l: RL[S.z].p[S.pt][1] };
+    $('#zs').innerHTML = RL.map(z => `<div><h3>${ic('pin')}${z.n}</h3><ul>${z.p.map(([c, l], i) => `<li class="r" style="--d:${i}"><b>${c}</b><span class="mut">${l}</span></li>`).join('')}</ul></div>`).join('');
+    const PM = [['om', 'Orange Money', 'sm', 0], ['mt', 'MTN MoMo', 'sm', 0], ['wv', 'Wave', 'sm', 1], ['cb', 'Carte bancaire', 'cd', 0]];
+    const getWaveLink = amt => `https://pay.wave.com/m/M_ci_BDqgKg4Wl7G2/c/ci/?amount=${amt}`;
+    const WAVE_LINK = getWaveLink(6000);
+    const F = [['wh', 'Véhicule dédié', 'Un véhicule réservé à votre événement : rendez-vous au point relais, nous nous occupons de la route.'], ['pin', '16 points relais', 'Seize points de départ à Abidjan Nord et Abidjan Sud, au plus près de chez vous.'], ['qr', 'QR code unique', 'Reçu et billet numérique envoyés par e-mail, vérifié et validé une seule fois par nos équipes.'], ['sh', 'Paiement sécurisé', 'Mobile money ou carte bancaire, confirmation immédiate.']];
+    const T = [['Vos informations', 'Nom, prénom, téléphone et e-mail pour recevoir votre billet.'], ['Votre événement', 'Kiff No Beat, Tiakola, Fally Ipupa, Dena Mwana, Himra…'], ['Votre point relais', 'Votre zone, puis le point le plus proche de chez vous.'], ['Paiement et QR code', 'Reçu et QR code unique envoyés par e-mail.']];
+
+    $('#h1').innerHTML = 'Le concert commence dès le trajet.'.split(' ').map((w, i) => `<span><b style="--i:${i}">${w}</b></span>`).join(' ');
+    const sp = `<span>${ic('mu')}</span>`, mq = EV.map(e => `<span>${e.n}</span>`).join(sp) + sp; $('#mq').innerHTML = mq.repeat(3);
+    $('#rows').innerHTML = F.map(([i, t, d], k) => `<li class="r" style="--d:${k}">${ic(i)}<h3>${t}</h3><p class="mut">${d}</p></li>`).join('');
+    $('#tl').innerHTML = T.map(([a, b], i) => `<li class="st"><i>${i + 1}</i><h3>${a}</h3><p class="mut">${b}</p></li>`).join('');
+    $('#evs').innerHTML = EV.map((e, i) => `<div class="r" style="--d:${i % 6}"><article class="ev"><div class="ev-poster"><img src="${e.img}" alt="${e.n}" loading="lazy"><span class="tg">${e.m}</span></div><h3>${e.n}</h3><p class="mut">${ic('cal')}${e.d}</p>${e.h ? `<p class="mut">${ic('cl')}${e.h}</p>` : ''}<div class="fo"><span class="pr">${fmt(e.p)} <small>par place</small></span><button class="btn" data-ev="${e.id}">Réserver cet événement</button></div></article></div>`).join('');
+
+    /* Réservation */
+    const S = { ev: null, z: 0, pt: null, pm: 'wv', qty: 1 }, E = () => EV.find(e => e.id == S.ev); let st = 0, tm;
+    const f = $('#f'), pn = $$('.pn'), stp = $('#stp'), bk = $('#bk'), nx = $('#nx'), dn = $('#dn'), M = $('#main');
+    stp.innerHTML = ['Infos', 'Événement', 'Relais', 'Paiement'].map(t => `<li>${t}</li>`).join('');
+    const toast = m => { const t = $('#toast'); $('span', t).textContent = m; t.classList.add('on'); clearTimeout(tm); tm = setTimeout(() => t.classList.remove('on'), 2800) };
+    const er = (p, t) => { const e = $('.er', p); e.textContent = t; e.classList.remove('shk'); void e.offsetWidth; t && e.classList.add('shk') };
+    function rEv() { $('#eo').innerHTML = ['Novembre', 'Décembre'].map(m => `<h4>${m} 2026</h4>` + EV.filter(e => e.m == m).map(e => `<button type="button" class="opt${S.ev == e.id ? ' sel' : ''}" data-id="${e.id}"><img src="${e.img}" class="opt-thumb" alt="${e.n}"><div><b>${e.n}</b><small>${e.d}${e.h ? ', ' + e.h : ''}</small></div><span>${fmt(e.p)}</span></button>`).join('')).join('') }
+    function rRl() {
+      const z = RL[S.z], t = $('#zt'); t.style.setProperty('--x', S.z ? '100%' : '0'); t.innerHTML = RL.map((r, i) => `<button type="button" class="${i == S.z ? 'on' : ''}" data-z="${i}">${r.n}</button>`).join('');
+      $('#ro').innerHTML = z.p.map(([c, l], i) => `<button type="button" class="opt${S.pt === i ? ' sel' : ''}" data-i="${i}" style="--i:${i}">${ic('pin')}<div><b>${c}</b><small>${l}</small></div></button>`).join('')
+    }
+    function rPm() { $('#pm').innerHTML = PM.map(([id, n, i, a]) => `<button type="button" class="opt${S.pm == id ? ' sel' : ''}" data-id="${id}"${a ? '' : ' disabled'}>${ic(i)}<div><b>${n}</b>${a ? '' : '<small>Bientôt disponible</small>'}</div></button>`).join('') }
+    function rc() {
+      const e = E(), r = PT(), q = S.qty || 1, total = e ? e.p * q : 0;
+      const qStr = q > 1 ? q + ' tickets (' + q + ' QR codes)' : '1 ticket (1 QR code)';
+      $('#rc').innerHTML = '<h3>Récapitulatif</h3>' + [
+        ['mu', 'Événement', e && e.n],
+        ['cal', 'Date', e && e.d],
+        ['pin', 'Point relais', r && (r.c + ', ' + r.l)],
+        ['qr', 'Quantité', e ? qStr : null]
+      ].map(([i, l, v]) => `<div class="rw${v ? ' ok' : ''}">${ic(i)}<span>${l}</span><b>${v || '—'}</b></div>`).join('') + `<div class="tt"><span>Total</span><b>${e ? fmt(total) : '—'}</b></div>`;
+      $('#tt').textContent = e ? fmt(total) : '—'
+    }
+    function go(n) {
+      st = n; pn.forEach((p, i) => p.classList.toggle('on', i == n)); $$('li', stp).forEach((l, i) => { l.classList.toggle('dn', i < n); l.classList.toggle('on', i == n) });
+      const total = E() ? E().p * (S.qty || 1) : 0;
+      bk.style.visibility = n ? 'visible' : 'hidden'; nx.disabled = false; nx.textContent = n == 3 ? 'Payer ' + fmt(total) : 'Continuer'; rc(); if (M.getBoundingClientRect().top < 0) M.scrollIntoView()
+    }
+    const V = { pr: v => v.trim().length > 1, nm: v => v.trim().length > 1, tel: v => /^\d{8,13}$/.test(v.replace(/[\s.+()-]/g, '')), ml: v => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v) },
+      MS = { pr: 'Indiquez votre prénom.', nm: 'Indiquez votre nom.', tel: 'Numéro de téléphone invalide.', ml: 'Adresse e-mail invalide.' };
+    function ok() {
+      if (st == 0) { let all = true; for (const k in V) { const i = f.elements[k], g = V[k](i.value); i.nextElementSibling.textContent = g ? '' : MS[k]; i.classList.toggle('bad', !g); if (!g) all = false } const b = $('.bad', f); b && b.focus(); return all }
+      const v = [0, S.ev, S.pt != null || null][st]; er(pn[st], v ? '' : ['', 'Choisissez un événement pour continuer.', 'Choisissez un point relais.'][st]); return !!v
+    }
+    function setEv(id) { S.ev = id; rEv(); rc(); er(pn[1], '') }
+    $('#eo').onclick = e => { const b = e.target.closest('.opt'); b && setEv(b.dataset.id) };
+    $('#qtyBtns').onclick = e => {
+      const b = e.target.closest('.qty-btn');
+      if (!b) return;
+      const q = Math.max(1, Math.min(5, parseInt(b.dataset.q, 10) || 1));
+      S.qty = q;
+      $$('#qtyBtns .qty-btn').forEach(x => x.classList.toggle('sel', x == b));
+      $('#qtySub').textContent = q > 1 ? `${q} tickets sélectionnés (${q} QR codes différents envoyés par e-mail)` : '1 ticket sélectionné (1 QR code envoyé par e-mail)';
+      rc();
+      if (st === 3 && E()) nx.textContent = 'Payer ' + fmt(E().p * S.qty);
+    };
+    $('#zt').onclick = e => { const b = e.target.closest('button'); if (b && +b.dataset.z != S.z) { S.z = +b.dataset.z; S.pt = null; rRl(); rc() } };
+    $('#ro').onclick = e => { const b = e.target.closest('.opt'); if (b) { S.pt = +b.dataset.i; er(pn[2], ''); $$('.opt', $('#ro')).forEach(x => x.classList.toggle('sel', x == b)); rc() } };
+    $('#pm').onclick = e => { const b = e.target.closest('.opt'); if (b) { S.pm = b.dataset.id; rPm() } };
+    $('#evs').onclick = e => { const b = e.target.closest('[data-ev]'); if (!b) return; if (!dn.hidden) reset(); setEv(b.dataset.ev); go(st); $('#reserver').scrollIntoView(); toast(E().n + ' sélectionné.') };
+    bk.onclick = () => { $('#waveWait').hidden = true; go(st - 1) }; nx.onclick = () => { if (st == 3) return pay(); ok() && go(st + 1) };
+    f.onkeydown = e => { if (e.key == 'Enter' && e.target.tagName == 'INPUT') { e.preventDefault(); nx.click() } };
+    function pay() {
+      const q = S.qty || 1;
+      const total = (E() ? E().p : 6000) * q;
+      const link = getWaveLink(total);
+      window.open(link, '_blank', 'noopener,noreferrer');
+      $('#waveAmt').textContent = fmt(total);
+      $('#waveMsgText').innerHTML = `Veuillez payer TICKWAY <b>${fmt(total)}</b> avec Wave en cliquant sur ce lien :<br><a href="${link}" target="_blank" rel="noopener,noreferrer" style="display:inline-block;margin:6px 0;font-weight:700;color:#0a74b8;word-break:break-all">${link}</a><br><small style="color:#64748b;display:block;margin-top:4px">💡 Ajoutez cet expéditeur à vos contacts pour rendre le lien cliquable.</small>`;
+      $('#waveWait').hidden = false;
+      nx.disabled = true;
+      nx.textContent = 'En attente du paiement…';
+    }
+    $('#waveReopen').onclick = () => {
+      const q = S.qty || 1;
+      const total = (E() ? E().p : 6000) * q;
+      window.open(getWaveLink(total), '_blank', 'noopener,noreferrer');
+    };
+    $('#waveDone').onclick = finish;
+
+    /* Configuration EmailJS */
+    const EMAILJS_CFG = {
+      serviceId: 'service_zkdvg0w',
+      templateId: 'template_kkd54a6',
+      publicKey: 'yTONDvVM6zOER6PEC'
+    };
+
+    function genLocalRef() {
+      const AL = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ', a = new Uint8Array(8);
+      crypto.getRandomValues(a);
+      let s = '';
+      a.forEach(b => s += AL[b % 32]);
+      return 'TW-' + s.slice(0, 4) + '-' + s.slice(4, 8);
+    }
+
+    // Construit un QR code compact en tableau HTML (cases noires/blanches), sans aucune image.
+    function qrHtmlTable(text) {
+      try {
+        if (!window.QRCode) return '';
+        const q = new QRCode(document.createElement('div'), { text, width: 64, height: 64, correctLevel: QRCode.CorrectLevel.L });
+        const m = q._oQRCode; if (!m) return '';
+        const n = m.getModuleCount(), px = n > 29 ? 4 : 6, W = n * px;
+        let cols = '<colgroup>';
+        for (let i = 0; i < n; i++) cols += `<col width=${px}>`;
+        cols += '</colgroup>';
+        let rows = '';
+        for (let r = 0; r < n; r++) {
+          let cells = '', c = 0;
+          while (c < n) {
+            const d = m.isDark(r, c); let k = 1;
+            while (c + k < n && m.isDark(r, c + k) === d) k++;
+            cells += `<td${k > 1 ? ' colspan=' + k : ''}${d ? ' bgcolor=#000' : ''}></td>`;
+            c += k;
+          }
+          rows += `<tr height=${px}>${cells}</tr>`;
+        }
+        return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${W}" align="center" bgcolor="#ffffff" style="border-collapse:collapse;table-layout:fixed;margin:0 auto;font-size:0;line-height:0;background:#ffffff;border:10px solid #ffffff">${cols}${rows}</table>`;
+      } catch (err) { return ''; }
+    }
+
+    function buildTicketsEmailHtml(tickets, passagerNom, meta, useImgOnly = false) {
+      const total = tickets.length;
+      return tickets.map((t, idx) => {
+        const ref = t.reference || t.code || t;
+        const num = idx + 1;
+        const title = total > 1
+          ? `Ticket ${num}/${total} — ${idx === 0 ? passagerNom + ' (Titulaire)' : 'Passager ' + num}`
+          : `Ticket — ${passagerNom}`;
+        const qrContent = t.qrText || buildTicketQrText(ref, { ...meta, num, qty: total, nom: passagerNom });
+        const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(qrContent);
+        const qrVisual = useImgOnly
+          ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
+          : (qrHtmlTable(qrContent) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
+        return `<div style="margin:${idx === 0 ? '0' : '14px'} 0 0;padding:16px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:10px;text-align:center">` +
+          `<div style="font-size:13px;font-weight:700;color:#0a74b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${title}</div>` +
+          qrVisual +
+          `<div style="margin:10px 0 2px;font-size:20px;font-weight:800;letter-spacing:1.5px;color:#252a31">${ref}</div>` +
+          `<div style="font-size:12px;color:#64748b">Billet individuel à usage unique — présentez ce QR code à la montée</div>` +
+          `<div style="margin-top:6px;font-size:12px"><a href="${qrImgUrl}" target="_blank" style="color:#0a74b8">Afficher le QR code #${num} en image</a></div>` +
+          `</div>`;
+      }).join('');
+    }
+
+    async function sendEmailJSDirect(d, tickets, e, r, pm) {
+      const list = Array.isArray(tickets) ? tickets : [{ reference: tickets }];
+      const refs = list.map(t => t.reference || t.code || t);
+      const firstRef = refs[0];
+      const allRefsStr = refs.join(', ');
+      const totalQty = list.length;
+      const totalMontant = fmt(e.p * totalQty);
+      const passagerNom = (d.pr + ' ' + d.nm).trim();
+      const zIdx = Math.max(0, RL.findIndex(x => x.n === r.z));
+      const ptIdx = Math.max(0, (RL[zIdx] ? RL[zIdx].p : []).findIndex(([c, l]) => c === r.c && l === r.l));
+      const meta = { evId: e.id, z: zIdx, pt: ptIdx };
+      const firstQrContent = (list[0] && list[0].qrText) || buildTicketQrText(firstRef, { ...meta, num: 1, qty: totalQty, nom: passagerNom });
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(firstQrContent);
+      const dateComplete = e.d + (e.h ? ', ' + e.h : '');
+      const pointComplet = r.c + ', ' + r.l;
+
+      const buildPayload = (useImgOnly) => ({
+        service_id: EMAILJS_CFG.serviceId,
+        template_id: EMAILJS_CFG.templateId,
+        user_id: EMAILJS_CFG.publicKey,
+        template_params: {
+          email: d.ml,
+          to_email: d.ml,
+          user_email: d.ml,
+          destinataire: d.ml,
+          to_name: passagerNom,
+          name: passagerNom,
+          prenom: d.pr,
+          nom: d.nm,
+          telephone: d.tel,
+          from_name: 'TickWay',
+          reply_to: '',
+          reference: allRefsStr,
+          quantite: totalQty,
+          nb_places: totalQty,
+          places: totalQty > 1 ? `${totalQty} tickets` : '1 ticket',
+          event_nom: e.n,
+          event_name: e.n,
+          evenement: e.n,
+          event_date: dateComplete,
+          date: dateComplete,
+          zone: r.z,
+          point_relais: pointComplet,
+          lieu: pointComplet,
+          montant: `${totalMontant} (${totalQty > 1 ? totalQty + ' tickets' : '1 ticket'})`,
+          mode_paiement: pm,
+          qr_code_url: qrUrl,
+          qr_code: qrUrl,
+          qr: qrUrl,
+          qrcode: qrUrl,
+          qr_url: qrUrl,
+          qr_image: qrUrl,
+          qr_html: buildTicketsEmailHtml(list, passagerNom, meta, useImgOnly),
+          subject: totalQty > 1
+            ? `Confirmation de vos ${totalQty} billets TickWay (${firstRef})`
+            : `Confirmation de votre réservation TickWay (${firstRef})`,
+          message: `Bonjour ${passagerNom}, vos ${totalQty} place(s) à bord de la navette TickWay pour ${e.n} (${dateComplete}) au départ de ${pointComplet} (${r.z}) sont enregistrées sous : ${allRefsStr}.`
+        }
+      });
+
+      const htmlBodyStr = JSON.stringify(buildPayload(false));
+      const initialBody = htmlBodyStr.length <= 46000 ? htmlBodyStr : JSON.stringify(buildPayload(true));
+      let resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: initialBody
+      });
+      if (!resp.ok && htmlBodyStr.length <= 46000) {
+        resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildPayload(true))
+        });
+      }
+      if (!resp.ok) {
+        const errText = await resp.text();
+        console.warn('[EMAILJS] Erreur envoi direct :', errText);
+        throw new Error(errText);
+      }
+      console.log(`[EMAILJS] ✓ ${totalQty} QR code(s) envoyé(s) avec succès à ${d.ml}`);
+    }
+
+    function showTicket(tickets, d, e, r, pm, sentViaBackend) {
+      const list = Array.isArray(tickets) ? tickets : [{ reference: tickets }];
+      const refs = list.map(t => t.reference || t.code || t);
+      const totalQty = list.length;
+      const totalMontant = fmt(e.p * totalQty);
+      const passagerNom = (d.pr + ' ' + d.nm).trim();
+      const zIdx = Math.max(0, RL.findIndex(x => x.n === r.z));
+      const ptIdx = Math.max(0, (RL[zIdx] ? RL[zIdx].p : []).findIndex(([c, l]) => c === r.c && l === r.l));
+      f.hidden = true;
+      dn.hidden = false;
+
+      const plural = totalQty > 1;
+      const summaryRows = [
+        [plural ? 'Références' : 'Référence', refs.join(', ')],
+        ['Passager', esc(passagerNom)],
+        ['Nombre de places', plural ? `${totalQty} tickets (${totalQty} QR codes)` : '1 ticket (1 QR code)'],
+        ['Événement', e.n],
+        ['Date', e.d + (e.h ? ', ' + e.h : '')],
+        ['Zone', r.z],
+        ['Point relais', r.c + ', ' + r.l],
+        ['Montant payé', `${totalMontant} (${pm})`]
+      ].map(([a, b]) => `<div><dt>${a}</dt><dd>${b}</dd></div>`).join('');
+
+      const qrCardsHtml = list.map((t, idx) => {
+        const ref = t.reference || t.code || t;
+        const title = plural ? `Ticket ${idx + 1}/${totalQty}` : 'Votre QR code';
+        return `<div class="qr-card"><b>${title}</b><div class="qr-box" id="qr-box-${idx}"></div><span class="qr-ref">${esc(ref)}</span><span>À usage unique — présentez-le à l’entrée</span></div>`;
+      }).join('');
+
+      dn.innerHTML = `<div class="ok"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg></div><h3>Réservation confirmée</h3><p class="mut">${plural ? `Vos <b>${totalQty} QR codes différents</b> ont été envoyés` : 'Votre reçu et votre QR code unique ont été envoyés'} à <b>${esc(d.ml)}</b>.</p><div class="tk" style="grid-template-columns:1fr"><dl>${summaryRows}</dl></div><div class="qr-grid">${qrCardsHtml}</div><div class="ac"><button type="button" class="btn gh" id="rs">Renvoyer l’e-mail</button><button type="button" class="btn" id="nw">Nouvelle réservation</button></div>`;
+
+      list.forEach((t, idx) => {
+        const ref = t.reference || t.code || t;
+        const box = $(`#qr-box-${idx}`);
+        if (!box) return;
+        const qrContent = t.qrText || buildTicketQrText(ref, { evId: e.id, z: zIdx, pt: ptIdx, num: idx + 1, qty: totalQty, nom: passagerNom });
+        if (t.qrDataUrl) {
+          box.innerHTML = `<img src="${t.qrDataUrl}" alt="QR code ${ref}" width="160" height="160">`;
+        } else if (window.QRCode) {
+          new QRCode(box, { text: qrContent, width: 160, height: 160, colorDark: '#1b1f24', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.L });
+        } else {
+          box.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrContent)}" alt="QR code" width="160" height="160">`;
+        }
+      });
+
+      $('#rs').onclick = async () => {
+        toast('Envoi en cours…');
+        if (sentViaBackend) {
+          try {
+            const rSend = await fetch(API_BASE + '/api/resend', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reference: refs[0], references: refs })
+            });
+            const ct = rSend.headers.get('content-type') || '';
+            if (rSend.ok && ct.includes('application/json')) {
+              const jSend = await rSend.json();
+              toast(jSend.message || 'E-mail renvoyé à ' + d.ml + '.');
+              return;
+            }
+          } catch (err) { }
+        }
+        try {
+          await sendEmailJSDirect(d, list, e, r, pm);
+          toast('E-mail renvoyé à ' + d.ml + '.');
+        } catch (err) {
+          toast('Échec du renvoi de l’e-mail.');
+        }
+      };
+      $('#nw').onclick = reset;
+      rc();
+      if (M.getBoundingClientRect().top < 0) M.scrollIntoView();
+    }
+
+    /* Création de la réservation (Backend API ou bascule directe EmailJS) */
+    async function finish() {
+      const e = E(), r = PT(), d = Object.fromEntries(new FormData(f)), pm = PM.find(x => x[0] == S.pm)[1];
+      const qty = Math.max(1, Math.min(5, S.qty || 1));
+      const passagerNom = (d.pr + ' ' + d.nm).trim();
+      const zIdx = typeof S.z === 'number' ? S.z : Math.max(0, RL.findIndex(x => x.n === r.z));
+      const ptIdx = typeof S.pt === 'number' ? S.pt : 0;
+      nx.disabled = true; nx.innerHTML = '<span class="sp"></span> Confirmation en cours…';
+
+      let tickets = null;
+      let sentViaBackend = false;
+
+      if (!isStaticOnlyHost()) {
+        try {
+          const resp = await fetch(API_BASE + '/api/reservations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prenom: d.pr,
+              nom: d.nm,
+              telephone: d.tel,
+              email: d.ml,
+              eventId: S.ev,
+              zone: S.z,
+              pointRelaisIndex: S.pt,
+              modePaiement: S.pm,
+              quantite: qty
+            })
+          });
+          const ct = resp.headers.get('content-type') || '';
+          if (resp.ok && ct.includes('application/json')) {
+            const json = await resp.json();
+            if (Array.isArray(json.tickets) && json.tickets.length > 0) {
+              tickets = json.tickets.map((t, idx) => {
+                const ref = t.reference || t.code;
+                return {
+                  numero: t.numero || (idx + 1),
+                  reference: ref,
+                  qrDataUrl: t.qrDataUrl || null,
+                  qrText: t.qrText || buildTicketQrText(ref, { evId: e.id, z: zIdx, pt: ptIdx, num: idx + 1, qty, nom: passagerNom }),
+                  label: t.label
+                };
+              });
+            } else if (json.reference) {
+              tickets = [{
+                numero: 1,
+                reference: json.reference,
+                qrDataUrl: json.qrDataUrl,
+                qrText: buildTicketQrText(json.reference, { evId: e.id, z: zIdx, pt: ptIdx, num: 1, qty: 1, nom: passagerNom })
+              }];
+            }
+            sentViaBackend = true;
+          }
+        } catch (err) {
+          console.info('[TICKWAY] Backend non détecté, envoi direct via EmailJS.');
+        }
+      }
+
+      // Si pas de serveur backend actif : générer N références uniques et envoyer les N QR codes différents via EmailJS
+      if (!tickets) {
+        const used = new Set();
+        tickets = [];
+        for (let i = 1; i <= qty; i++) {
+          let code = genLocalRef();
+          while (used.has(code)) code = genLocalRef();
+          used.add(code);
+          tickets.push({
+            numero: i,
+            reference: code,
+            qrText: buildTicketQrText(code, { evId: e.id, z: zIdx, pt: ptIdx, num: i, qty, nom: passagerNom })
+          });
+        }
+        try {
+          await sendEmailJSDirect(d, tickets, e, r, pm);
+        } catch (err) {
+          console.error('[EMAILJS]', err);
+        }
+      }
+
+      // Enregistrer chaque ticket individuellement en base locale navigateur
+      localDbSaveTickets(tickets, d, e, r, pm);
+
+      showTicket(tickets, d, e, r, pm, sentViaBackend);
+    }
+
+    function reset() {
+      f.reset(); S.ev = S.pt = null; S.z = 0; S.pm = 'wv'; S.qty = 1;
+      $$('#qtyBtns .qty-btn').forEach((x, idx) => x.classList.toggle('sel', idx === 0));
+      if ($('#qtySub')) $('#qtySub').textContent = '1 ticket sélectionné (1 QR code envoyé par e-mail)';
+      dn.hidden = true; f.hidden = false; $('#waveWait').hidden = true;
+      $$('.bad', f).forEach(x => x.classList.remove('bad')); $$('em', f).forEach(x => x.textContent = '');
+      rEv(); rRl(); rPm(); go(0);
+    }
+    rEv(); rRl(); rPm(); go(0);
+
+    /* Animations au scroll */
+    const nav = $('#nav'), bar = $('#bar'), glow = $('#glow'), bgt = $('#bgt'), tl = $('#tl'), sts = $$('.st'), sec = $('#events'), hero = $('#hero'); let q;
+    hero && hero.addEventListener('pointermove', e => { const b = hero.getBoundingClientRect(); hero.style.setProperty('--hx', (e.clientX - b.left) + 'px'); hero.style.setProperty('--hy', (e.clientY - b.top) + 'px') });
+    function tick() {
+      const y = scrollY, H = innerHeight, m = document.documentElement.scrollHeight - H;
+      bar.style.transform = 'scaleX(' + (m > 0 ? y / m : 0) + ')'; nav.classList.toggle('sc', y > 40);
+      glow.style.transform = 'translateY(' + Math.min(y, H) * .3 + 'px)';
+      bgt.style.transform = 'translateX(' + sec.getBoundingClientRect().top * .3 + 'px)';
+      const r = tl.getBoundingClientRect(), L = H * .6; tl.style.setProperty('--p', Math.max(0, Math.min(1, (L - r.top) / r.height)));
+      sts.forEach(s => s.classList.toggle('on', s.getBoundingClientRect().top < L))
+    }
+    addEventListener('scroll', () => q || (q = requestAnimationFrame(() => { q = 0; tick() })), { passive: true }); addEventListener('resize', tick); tick();
+    const io = new IntersectionObserver(a => a.forEach(x => { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target) } }), { threshold: .15 });
+    $$('.r').forEach(e => io.observe(e));
+    $$('.ev').forEach(c => {
+      c.onmousemove = e => {
+        const b = c.getBoundingClientRect(), x = (e.clientX - b.left) / b.width - .5, y = (e.clientY - b.top) / b.height - .5;
+        c.style.transform = `perspective(900px) rotateY(${x * 9}deg) rotateX(${-y * 9}deg) translateY(-6px)`; c.style.setProperty('--mx', (x + .5) * 100 + '%'); c.style.setProperty('--my', (y + .5) * 100 + '%')
+      }; c.onmouseleave = () => c.style.transform = ''
+    });
+
+    /* Contrôle des billets : scanner haute précision + validation serveur ou locale signée */
+    const scannedTokenCache = {};
+    let pendingScan = null;
+    let lastScan = { code: '', time: 0 };
+
+    function logAdd(code, s) { const row = document.createElement('div'); row.className = 'logr'; row.innerHTML = `<span>${esc(code)}</span><span>${s} · ${new Date().toLocaleTimeString('fr-FR').slice(0, 5)}</span>`; $('#log').prepend(row) }
+
+    function syncAuthUI() {
+      const hasKey = !!(localStorage.getItem('tickway_validate_key') || '').trim();
+      if ($('#authLocked')) $('#authLocked').hidden = hasKey;
+      if ($('#authUnlocked')) $('#authUnlocked').hidden = !hasKey;
+    }
+
+    function playFeedback(kind) {
+      try {
+        if (navigator.vibrate) {
+          navigator.vibrate(kind === 'ok' ? 120 : [100, 60, 100]);
+        }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = new Ctx();
+        const beep = (freq, start, dur) => {
+          const osc = ctx.createOscillator(), gain = ctx.createGain();
+          osc.type = kind === 'ok' ? 'sine' : 'triangle';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.12, ctx.currentTime + start);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + start);
+          osc.stop(ctx.currentTime + start + dur);
+        };
+        if (kind === 'ok') { beep(880, 0, 0.12); beep(1174, 0.1, 0.16); }
+        else { beep(280, 0, 0.14); beep(220, 0.16, 0.2); }
+      } catch (err) { }
+    }
+
+    function parseScannedRaw(raw) {
+      const text = (raw || '').trim();
+      if (!text) return { code: '', token: '' };
+      const match = text.match(/TW-[A-Z0-9]{4}-[A-Z0-9]{4}/i);
+      let code = match ? match[0].toUpperCase() : text.toUpperCase();
+      let token = '';
+      const qPos = text.indexOf('?');
+      if (qPos >= 0) {
+        try {
+          const sp = new URLSearchParams(text.slice(qPos + 1));
+          token = sp.get('d') || sp.get('p') || '';
+          if (!match) {
+            const cParam = (sp.get('c') || sp.get('code') || '').trim().toUpperCase();
+            if (cParam) code = cParam;
+          }
+        } catch (err) { }
+      }
+      return { code, token };
+    }
+
+    function renderVerifResult(code, json, status) {
+      const res = $('#res');
+      if (json.statut === 'valide_maintenant') {
+        playFeedback('ok');
+        res.className = 'res ok2';
+        res.innerHTML = ic('ck') + `<div><b>Billet valide — entrée autorisée</b><p class="mut">${esc(json.passager)} — ${esc(json.evenement)}${json.date ? ', ' + esc(json.date) : ''}<br>Point relais : ${esc(json.pointRelais)} · ${fmt(json.montant)}</p></div>`;
+        logAdd(code, 'validé');
+        $('#codeIn').value = '';
+      } else if (json.statut === 'deja_utilise') {
+        playFeedback('warn');
+        const dt = json.utiliseLe ? new Date(json.utiliseLe).toLocaleString('fr-FR') : 'antérieurement';
+        res.className = 'res warn';
+        res.innerHTML = ic('warn') + `<div><b>Billet déjà utilisé</b><p class="mut">${esc(json.passager || 'Passager')} — ${esc(json.evenement || 'Événement')}. Entrée déjà enregistrée le ${dt}.</p></div>`;
+        logAdd(code, 'déjà utilisé');
+      } else if (json.statut === 'invalide') {
+        playFeedback('bad');
+        res.className = 'res bad';
+        res.innerHTML = ic('x') + `<div><b>Billet invalide</b><p class="mut">${esc(json.message || 'Ce QR code n’est pas authentique.')}</p></div>`;
+        logAdd(code, 'invalide');
+      } else if (json.statut === 'introuvable') {
+        playFeedback('bad');
+        res.className = 'res bad';
+        res.innerHTML = ic('x') + `<div><b>Code introuvable</b><p class="mut">« ${esc(code)} » ne correspond à aucune réservation.</p></div>`;
+        logAdd(code, 'introuvable');
+      } else if (status === 401) {
+        playFeedback('bad');
+        localStorage.removeItem('tickway_validate_key');
+        syncAuthUI();
+        res.className = 'res bad';
+        res.innerHTML = ic('x') + `<div><b>Clé d’accès non reconnue</b><p class="mut">${esc(json.message || 'Clé invalide.')} Vérifiez la clé ci-dessus.</p></div>`;
+      } else {
+        playFeedback('bad');
+        res.className = 'res bad';
+        res.innerHTML = ic('x') + `<div><b>Erreur</b><p class="mut">${esc(json.message || 'Erreur lors du contrôle.')}</p></div>`;
+      }
+    }
+
+    async function verif(rawInput, explicitToken = '') {
+      const parsed = parseScannedRaw(rawInput);
+      const code = parsed.code;
+      const token = explicitToken || parsed.token || scannedTokenCache[code] || '';
+      if (!code) return;
+      if (token) scannedTokenCache[code] = token;
+      $('#codeIn').value = code;
+
+      const res = $('#res');
+      const key = (localStorage.getItem('tickway_validate_key') || '').trim();
+      syncAuthUI();
+
+      if (!key) {
+        pendingScan = { code, token };
+        res.className = 'res warn';
+        res.innerHTML = ic('warn') + `<div><b>Billet détecté : ${esc(code)}</b><p class="mut">Entrez la clé secrète équipe dans l’encadré tout en haut puis cliquez sur « Activer » pour valider ce billet.</p></div>`;
+        $('#keyIn') && $('#keyIn').focus();
+        return;
+      }
+
+      res.className = 'res';
+      res.innerHTML = '<span class="sp" style="border-color:#0a74b8;border-top-color:transparent"></span><div><b>Vérification de ' + esc(code) + '…</b></div>';
+
+      if (!isStaticOnlyHost()) {
+        try {
+          const resp = await fetch(API_BASE + '/api/validate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Api-Key': key
+            },
+            body: JSON.stringify({ reference: code })
+          });
+          const ct = resp.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const json = await resp.json();
+            renderVerifResult(code, json, resp.status);
+            return;
+          }
+        } catch (err) {
+          console.info('[VALIDATE] Serveur central indisponible, validation locale activée.');
+        }
+      }
+
+      if (key !== 'cle_secrete_equipe_terrain_2026') {
+        renderVerifResult(code, { message: "Clé d'API invalide (attendu : cle_secrete_equipe_terrain_2026)." }, 401);
+        return;
+      }
+      const localRes = localValidateTicket(code, token);
+      renderVerifResult(code, localRes, 200);
+    }
+
+    if ($('#keySaveBtn')) {
+      $('#keySaveBtn').onclick = () => {
+        const val = ($('#keyIn').value || '').trim();
+        if (!val) { toast('Veuillez saisir la clé équipe.'); return; }
+        localStorage.setItem('tickway_validate_key', val);
+        $('#keyIn').value = '';
+        syncAuthUI();
+        toast('Appareil équipe activé.');
+        if (pendingScan) {
+          const p = pendingScan;
+          pendingScan = null;
+          verif(p.code, p.token);
+        }
+      };
+      $('#keyIn').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#keySaveBtn').click(); } };
+    }
+    if ($('#keyLogoutBtn')) {
+      $('#keyLogoutBtn').onclick = () => {
+        localStorage.removeItem('tickway_validate_key');
+        syncAuthUI();
+        toast('Appareil déconnecté.');
+      };
+    }
+
+    $('#codeBtn').onclick = () => verif($('#codeIn').value);
+    $('#codeIn').onkeydown = e => { if (e.key == 'Enter') verif(e.target.value) };
+
+    function ensureJsQR() {
+      if (window.jsQR) return Promise.resolve(true);
+      return new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = 'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js';
+        s.onload = () => resolve(!!window.jsQR);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
+    }
+
+    let nativeBD = null;
+    if ('BarcodeDetector' in window) {
+      try { nativeBD = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { nativeBD = null; }
+    }
+
+    let camS = null, camTimer = null, camBusy = false;
+    const vid = $('#vid'), camCv = document.createElement('canvas'), camCx = camCv.getContext('2d', { willReadFrequently: true });
+
+    function camStop() {
+      if (camS) camS.getTracks().forEach(t => t.stop());
+      camS = null;
+      if (camTimer) clearTimeout(camTimer);
+      camTimer = null;
+      camBusy = false;
+      $('#camMsg').textContent = 'Caméra arrêtée.';
+      $('#camBtn').innerHTML = ic('scan') + 'Démarrer le scanner';
+    }
+
+    function handleScannedRaw(raw, fromPhoto = false) {
+      const { code, token } = parseScannedRaw(raw);
+      if (!code) return false;
+      const now = Date.now();
+      if (!fromPhoto && code === lastScan.code && (now - lastScan.time) < 4000) {
+        return false;
+      }
+      lastScan = { code, time: now };
+      if (token) scannedTokenCache[code] = token;
+      verif(code, token);
+      return true;
+    }
+
+    async function scanFrameOnce() {
+      if (!camS || camBusy) return;
+      if (vid.readyState >= 2 && vid.videoWidth > 0 && vid.videoHeight > 0) {
+        camBusy = true;
+        try {
+          if (nativeBD) {
+            try {
+              const found = await nativeBD.detect(vid);
+              if (found && found.length && found[0].rawValue) {
+                handleScannedRaw(found[0].rawValue, false);
+                camBusy = false;
+                return;
+              }
+            } catch (e) { }
+          }
+          if (window.jsQR) {
+            const maxSide = 560;
+            const scale = Math.min(1, maxSide / Math.max(vid.videoWidth, vid.videoHeight));
+            const w = Math.round(vid.videoWidth * scale), h = Math.round(vid.videoHeight * scale);
+            if (camCv.width !== w || camCv.height !== h) { camCv.width = w; camCv.height = h; }
+            camCx.drawImage(vid, 0, 0, w, h);
+            const im = camCx.getImageData(0, 0, w, h);
+            const qr = jsQR(im.data, w, h, { inversionAttempts: 'attemptBoth' });
+            if (qr && qr.data) {
+              handleScannedRaw(qr.data, false);
+            }
+          }
+        } catch (e) { }
+        camBusy = false;
+      }
+    }
+
+    function camLoop() {
+      if (!camS) return;
+      scanFrameOnce().finally(() => {
+        if (camS) camTimer = setTimeout(() => requestAnimationFrame(camLoop), 90);
+      });
+    }
+
+    $('#camBtn').onclick = async () => {
+      if (camS) { camStop(); return; }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        $('#camMsg').textContent = 'La caméra en direct exige HTTPS (ex: Netlify). Utilisez le bouton « Scanner une photo » à droite.';
+        return;
+      }
+      $('#camMsg').textContent = 'Ouverture de la caméra…';
+      await ensureJsQR();
+      try {
+        try {
+          camS = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+        } catch (e1) {
+          camS = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        vid.srcObject = camS;
+        await vid.play();
+        $('#camMsg').textContent = 'Visez le QR code du billet (scan continu actif).';
+        $('#camBtn').innerHTML = ic('x') + 'Arrêter le scanner';
+        camLoop();
+      } catch (err) {
+        const msg = err && err.name === 'NotAllowedError'
+          ? 'Accès caméra refusé : autorisez la caméra dans les paramètres du navigateur ou utilisez « Scanner une photo ».'
+          : 'Caméra en direct indisponible : utilisez le bouton « Scanner une photo ».';
+        $('#camMsg').textContent = msg;
+      }
+    };
+
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = e => { URL.revokeObjectURL(url); reject(e); };
+        img.src = url;
+      });
+    }
+
+    if ($('#qrFileIn')) {
+      $('#qrFileIn').onchange = async ev => {
+        const file = ev.target.files && ev.target.files[0];
+        ev.target.value = '';
+        if (!file) return;
+        const resEl = $('#res');
+        resEl.className = 'res';
+        resEl.innerHTML = '<span class="sp" style="border-color:#0a74b8;border-top-color:transparent"></span><div><b>Analyse de la photo…</b></div>';
+        try {
+          await ensureJsQR();
+          const img = await loadImageFromFile(file);
+          if (nativeBD) {
+            try {
+              const found = await nativeBD.detect(img);
+              if (found && found.length && found[0].rawValue) {
+                handleScannedRaw(found[0].rawValue, true);
+                return;
+              }
+            } catch (e) { }
+          }
+          if (window.jsQR) {
+            for (const maxSide of [960, 560, 360]) {
+              const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+              const w = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+              const h = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+              camCv.width = w; camCv.height = h;
+              camCx.drawImage(img, 0, 0, w, h);
+              const im = camCx.getImageData(0, 0, w, h);
+              const qr = jsQR(im.data, w, h, { inversionAttempts: 'attemptBoth' });
+              if (qr && qr.data) {
+                handleScannedRaw(qr.data, true);
+                return;
+              }
+            }
+          }
+          playFeedback('bad');
+          resEl.className = 'res bad';
+          resEl.innerHTML = ic('x') + '<div><b>Aucun QR code détecté</b><p class="mut">Prenez une photo nette et bien cadrée du QR code et réessayez.</p></div>';
+        } catch (err) {
+          playFeedback('bad');
+          resEl.className = 'res bad';
+          resEl.innerHTML = ic('x') + '<div><b>Erreur de lecture image</b><p class="mut">Impossible de lire ce fichier image.</p></div>';
+        }
+      };
+    }
+
+    function checkScannedUrlParams() {
+      syncAuthUI();
+      const h = location.hash || '';
+      const qIdx = h.indexOf('?');
+      const sp = new URLSearchParams(qIdx >= 0 ? h.slice(qIdx + 1) : location.search.slice(1));
+      const c = (sp.get('c') || sp.get('code') || '').trim().toUpperCase();
+      const dToken = sp.get('d') || sp.get('p') || '';
+      if (c) {
+        if (dToken) scannedTokenCache[c] = dToken;
+        verif(c, dToken);
+      }
+    }
+
+    function route() {
+      const sp = new URLSearchParams(location.search);
+      const ctl = location.hash.startsWith('#controle') || sp.has('c') || sp.has('code');
+      $('main').hidden = ctl;
+      $('#controle').hidden = !ctl;
+      if (!ctl) {
+        camStop();
+      } else {
+        checkScannedUrlParams();
+      }
+    }
+    addEventListener('hashchange', route); route();
+  </script>
+</body>
+
+</html>

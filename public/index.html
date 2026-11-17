@@ -12,7 +12,7 @@
   <link rel="stylesheet"
     href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Instrument+Sans:wght@400;500;600&display=swap">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <style>
     :root {
       --o: #e0a526;
@@ -1927,24 +1927,46 @@
   <section class="sec" id="controle" hidden>
     <div class="hd">
       <h2>Contrôle des billets.</h2>
-      <p class="mut">Scannez le QR code présenté par le client, ou saisissez sa référence pour valider l’entrée,
-        une seule fois.</p>
+      <p class="mut">Scannez le QR code présenté par le client avec la caméra ou par photo pour valider l’entrée (usage unique).</p>
     </div>
     <div class="main" style="max-width:640px;margin:48px auto 0">
-      <div class="scanwrap"><video id="vid" playsinline muted></video>
+      <div id="authBar" style="margin-bottom:20px;padding:14px 16px;border-radius:10px;border:1.5px solid #d3d9e0;background:#f4f7fa">
+        <div id="authLocked" style="display:grid;gap:10px">
+          <div style="font-weight:700;color:var(--k);font-size:.95rem">🔒 Connexion équipe requise pour valider les billets</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input id="keyIn" type="password" placeholder="Clé secrète équipe" autocomplete="current-password" style="flex:1;min-width:190px;padding:10px 14px">
+            <button type="button" class="btn" id="keySaveBtn" style="padding:10px 18px">Activer</button>
+          </div>
+          <small style="color:#64748b">Saisissez la clé une seule fois sur ce téléphone (par défaut : <code>cle_secrete_equipe_terrain_2026</code>).</small>
+        </div>
+        <div id="authUnlocked" hidden style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+          <span style="font-weight:600;color:#0f5132;font-size:.92rem">🔓 Appareil équipe actif — Scan prêt</span>
+          <button type="button" class="btn gh" id="keyLogoutBtn" style="padding:6px 12px;font-size:.82rem;border-radius:8px">Déconnecter</button>
+        </div>
+      </div>
+
+      <div class="scanwrap"><video id="vid" playsinline autoplay muted></video>
         <div class="frame"></div>
       </div>
-      <p class="mut" id="camMsg" style="text-align:center;margin-top:12px">Caméra arrêtée.</p>
-      <div class="ac"><button type="button" class="btn" id="camBtn"><svg class="i">
+      <p class="mut" id="camMsg" style="text-align:center;margin-top:12px">Caméra prête. Appuyez sur « Démarrer le scanner ».</p>
+      <div class="ac">
+        <button type="button" class="btn" id="camBtn"><svg class="i">
             <use href="#i-scan" />
-          </svg>Démarrer le scanner</button></div>
+          </svg>Démarrer le scanner</button>
+        <label class="btn gh" for="qrFileIn" style="cursor:pointer;margin:0"><svg class="i">
+            <use href="#i-qr" />
+          </svg>Scanner une photo</label>
+        <input id="qrFileIn" type="file" accept="image/*" capture="environment" hidden>
+      </div>
+
+      <div id="res" aria-live="polite"></div>
+
       <h4>Ou saisir la référence manuellement</h4>
       <div class="g2" style="grid-template-columns:1fr auto">
         <label>Référence du billet<input id="codeIn" placeholder="TW-XXXX-XXXX" autocomplete="off"
             autocapitalize="characters"></label>
         <button type="button" class="btn gh" id="codeBtn" style="align-self:end;height:52px">Vérifier</button>
       </div>
-      <div id="res" aria-live="polite"></div>
       <div id="log"></div>
     </div>
   </section>
@@ -1965,11 +1987,79 @@
 
   <script>
     document.documentElement.classList.add('js');
-    // En production le front et le backend partagent la même origine.
-    // En local (fichier ouvert depuis le Bureau en file:// ou Live Server), on pointe vers http://localhost:3000
-    const API_BASE = (location.protocol === 'file:' || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') && location.port !== '3000'))
-      ? 'http://localhost:3000'
-      : '';
+    function getApiBase() {
+      const custom = (localStorage.getItem('tickway_api_url') || '').trim().replace(/\/$/, '');
+      if (custom) return custom;
+      if (location.protocol === 'file:' || ((location.hostname === 'localhost' || location.hostname === '127.0.0.1') && location.port !== '3000')) {
+        return 'http://localhost:3000';
+      }
+      return '';
+    }
+    const API_BASE = getApiBase();
+    function isStaticOnlyHost() {
+      const custom = (localStorage.getItem('tickway_api_url') || '').trim();
+      if (custom) return false;
+      return location.protocol === 'file:' || location.hostname.endsWith('.netlify.app');
+    }
+
+    function hashStr(s) {
+      let h = 2166136261;
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      return (h >>> 0).toString(36);
+    }
+
+    function buildTicketQrText(ref, meta) {
+      const origin = (location.protocol.startsWith('http') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')
+        ? location.origin
+        : 'https://tickway.netlify.app';
+      if (!meta || !meta.evId) {
+        return `${origin}/#controle?c=${encodeURIComponent(ref)}`;
+      }
+      const cleanNom = (meta.nom || '').trim().slice(0, 22).replace(/[.|~]/g, ' ').replace(/\s+/g, '_');
+      const qtyPart = `${meta.num || 1}_${meta.qty || 1}`;
+      const core = `${ref}|${meta.evId}|${meta.z}|${meta.pt}|${qtyPart}|${cleanNom}`;
+      const sig = hashStr(core + '|TW2026CI');
+      const d = `${meta.evId}.${meta.z}.${meta.pt}.${qtyPart}.${sig}.${cleanNom}`;
+      return `${origin}/#controle?c=${encodeURIComponent(ref)}&d=${encodeURIComponent(d)}`;
+    }
+
+    function verifyAndDecodeQrToken(ref, dToken) {
+      try {
+        const parts = (dToken || '').split('.');
+        if (parts.length < 5) return { validSignature: false };
+        const [evId, zStr, ptStr, qtyPart, sig, ...rest] = parts;
+        const cleanNom = rest.join('.');
+        const core = `${ref}|${evId}|${zStr}|${ptStr}|${qtyPart}|${cleanNom}`;
+        const expected = hashStr(core + '|TW2026CI');
+        if (sig !== expected) return { validSignature: false };
+        const ev = EV.find(x => x.id === evId);
+        const z = parseInt(zStr, 10);
+        const pt = parseInt(ptStr, 10);
+        const rel = RL[z] && RL[z].p[pt];
+        const [numStr, qtyStr] = (qtyPart || '1_1').split('_');
+        const num = parseInt(numStr, 10) || 1;
+        const qty = parseInt(qtyStr, 10) || 1;
+        const rawNom = cleanNom.replace(/_/g, ' ').trim() || 'Passager TickWay';
+        const passager = qty > 1 ? `${rawNom} (Ticket ${num}/${qty})` : rawNom;
+        return {
+          validSignature: true,
+          reference: ref,
+          passager,
+          evenement: ev ? ev.n : 'Événement TickWay',
+          date: ev ? (ev.d + (ev.h ? ', ' + ev.h : '')) : '',
+          zone: RL[z] ? RL[z].n : 'Abidjan',
+          pointRelais: rel ? `${rel[0]}, ${rel[1]}` : 'Point relais',
+          montant: ev ? ev.p : 6000,
+          quantite: qty
+        };
+      } catch (err) {
+        return { validSignature: false };
+      }
+    }
+
     const LOCAL_DB_KEY = 'tickway_reservations_db';
     function localDbLoad() {
       try {
@@ -2017,13 +2107,28 @@
         localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db));
       } catch (err) { }
     }
-    function localValidateTicket(code) {
+    function localValidateTicket(code, dToken) {
       const db = localDbLoad();
       const t = db[code];
-      if (!t) return { statut: 'introuvable', reference: code };
-      if (t.statut === 'utilise') {
+      if (t) {
+        if (t.statut === 'utilise') {
+          return {
+            statut: 'deja_utilise',
+            reference: t.reference,
+            passager: t.passager,
+            evenement: t.evenement,
+            date: t.date,
+            zone: t.zone,
+            pointRelais: t.pointRelais,
+            montant: t.montant,
+            utiliseLe: t.utiliseLe
+          };
+        }
+        t.statut = 'utilise';
+        t.utiliseLe = new Date().toISOString();
+        try { localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db)); } catch (err) { }
         return {
-          statut: 'deja_utilise',
+          statut: 'valide_maintenant',
           reference: t.reference,
           passager: t.passager,
           evenement: t.evenement,
@@ -2034,20 +2139,39 @@
           utiliseLe: t.utiliseLe
         };
       }
-      t.statut = 'utilise';
-      t.utiliseLe = new Date().toISOString();
-      try { localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db)); } catch (err) { }
-      return {
-        statut: 'valide_maintenant',
-        reference: t.reference,
-        passager: t.passager,
-        evenement: t.evenement,
-        date: t.date,
-        zone: t.zone,
-        pointRelais: t.pointRelais,
-        montant: t.montant,
-        utiliseLe: t.utiliseLe
-      };
+      if (dToken) {
+        const decoded = verifyAndDecodeQrToken(code, dToken);
+        if (!decoded.validSignature) {
+          return { statut: 'invalide', reference: code, message: 'Signature QR code invalide ou billet falsifié.' };
+        }
+        const nowIso = new Date().toISOString();
+        db[code] = {
+          reference: code,
+          passager: decoded.passager,
+          evenement: decoded.evenement,
+          date: decoded.date,
+          zone: decoded.zone,
+          pointRelais: decoded.pointRelais,
+          montant: decoded.montant,
+          modePaiement: 'Wave',
+          statut: 'utilise',
+          creeLe: nowIso,
+          utiliseLe: nowIso
+        };
+        try { localStorage.setItem(LOCAL_DB_KEY, JSON.stringify(db)); } catch (err) { }
+        return {
+          statut: 'valide_maintenant',
+          reference: code,
+          passager: decoded.passager,
+          evenement: decoded.evenement,
+          date: decoded.date,
+          zone: decoded.zone,
+          pointRelais: decoded.pointRelais,
+          montant: decoded.montant,
+          utiliseLe: nowIso
+        };
+      }
+      return { statut: 'introuvable', reference: code };
     }
     const $ = (s, e = document) => e.querySelector(s), $$ = (s, e = document) => [...e.querySelectorAll(s)],
       ic = n => `<svg class="i"><use href="#i-${n}"/></svg>`, fmt = n => n.toLocaleString('fr-FR') + ' FCFA',
@@ -2272,13 +2396,12 @@
     }
 
     // Construit un QR code compact en tableau HTML (cases noires/blanches), sans aucune image.
-    // Compatible jusqu'à 5 QR codes dans le même e-mail (< 30 Ko au total).
     function qrHtmlTable(text) {
       try {
         if (!window.QRCode) return '';
-        const q = new QRCode(document.createElement('div'), { text, width: 64, height: 64, correctLevel: QRCode.CorrectLevel.M });
+        const q = new QRCode(document.createElement('div'), { text, width: 64, height: 64, correctLevel: QRCode.CorrectLevel.L });
         const m = q._oQRCode; if (!m) return '';
-        const n = m.getModuleCount(), px = 6, W = n * px;
+        const n = m.getModuleCount(), px = n > 29 ? 4 : 6, W = n * px;
         let cols = '<colgroup>';
         for (let i = 0; i < n; i++) cols += `<col width=${px}>`;
         cols += '</colgroup>';
@@ -2293,11 +2416,11 @@
           }
           rows += `<tr height=${px}>${cells}</tr>`;
         }
-        return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${W}" align="center" style="border-collapse:collapse;table-layout:fixed;margin:0 auto;font-size:0;line-height:0;background:#fff;border:10px solid #fff">${cols}${rows}</table>`;
+        return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${W}" align="center" bgcolor="#ffffff" style="border-collapse:collapse;table-layout:fixed;margin:0 auto;font-size:0;line-height:0;background:#ffffff;border:10px solid #ffffff">${cols}${rows}</table>`;
       } catch (err) { return ''; }
     }
 
-    function buildTicketsEmailHtml(tickets, passagerNom, useImgOnly = false) {
+    function buildTicketsEmailHtml(tickets, passagerNom, meta, useImgOnly = false) {
       const total = tickets.length;
       return tickets.map((t, idx) => {
         const ref = t.reference || t.code || t;
@@ -2305,10 +2428,11 @@
         const title = total > 1
           ? `Ticket ${num}/${total} — ${idx === 0 ? passagerNom + ' (Titulaire)' : 'Passager ' + num}`
           : `Ticket — ${passagerNom}`;
-        const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=' + encodeURIComponent(ref);
+        const qrContent = t.qrText || buildTicketQrText(ref, { ...meta, num, qty: total, nom: passagerNom });
+        const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(qrContent);
         const qrVisual = useImgOnly
-          ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="150" height="150" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
-          : (qrHtmlTable(ref) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="150" height="150" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
+          ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
+          : (qrHtmlTable(qrContent) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
         return `<div style="margin:${idx === 0 ? '0' : '14px'} 0 0;padding:16px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:10px;text-align:center">` +
           `<div style="font-size:13px;font-weight:700;color:#0a74b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${title}</div>` +
           qrVisual +
@@ -2326,8 +2450,12 @@
       const allRefsStr = refs.join(', ');
       const totalQty = list.length;
       const totalMontant = fmt(e.p * totalQty);
-      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=' + encodeURIComponent(firstRef);
       const passagerNom = (d.pr + ' ' + d.nm).trim();
+      const zIdx = Math.max(0, RL.findIndex(x => x.n === r.z));
+      const ptIdx = Math.max(0, (RL[zIdx] ? RL[zIdx].p : []).findIndex(([c, l]) => c === r.c && l === r.l));
+      const meta = { evId: e.id, z: zIdx, pt: ptIdx };
+      const firstQrContent = (list[0] && list[0].qrText) || buildTicketQrText(firstRef, { ...meta, num: 1, qty: totalQty, nom: passagerNom });
+      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(firstQrContent);
       const dateComplete = e.d + (e.h ? ', ' + e.h : '');
       const pointComplet = r.c + ', ' + r.l;
 
@@ -2367,7 +2495,7 @@
           qrcode: qrUrl,
           qr_url: qrUrl,
           qr_image: qrUrl,
-          qr_html: buildTicketsEmailHtml(list, passagerNom, useImgOnly),
+          qr_html: buildTicketsEmailHtml(list, passagerNom, meta, useImgOnly),
           subject: totalQty > 1
             ? `Confirmation de vos ${totalQty} billets TickWay (${firstRef})`
             : `Confirmation de votre réservation TickWay (${firstRef})`,
@@ -2375,12 +2503,14 @@
         }
       });
 
+      const htmlBodyStr = JSON.stringify(buildPayload(false));
+      const initialBody = htmlBodyStr.length <= 46000 ? htmlBodyStr : JSON.stringify(buildPayload(true));
       let resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload(false))
+        body: initialBody
       });
-      if (!resp.ok) {
+      if (!resp.ok && htmlBodyStr.length <= 46000) {
         resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2400,13 +2530,16 @@
       const refs = list.map(t => t.reference || t.code || t);
       const totalQty = list.length;
       const totalMontant = fmt(e.p * totalQty);
+      const passagerNom = (d.pr + ' ' + d.nm).trim();
+      const zIdx = Math.max(0, RL.findIndex(x => x.n === r.z));
+      const ptIdx = Math.max(0, (RL[zIdx] ? RL[zIdx].p : []).findIndex(([c, l]) => c === r.c && l === r.l));
       f.hidden = true;
       dn.hidden = false;
 
       const plural = totalQty > 1;
       const summaryRows = [
         [plural ? 'Références' : 'Référence', refs.join(', ')],
-        ['Passager', esc(d.pr + ' ' + d.nm)],
+        ['Passager', esc(passagerNom)],
         ['Nombre de places', plural ? `${totalQty} tickets (${totalQty} QR codes)` : '1 ticket (1 QR code)'],
         ['Événement', e.n],
         ['Date', e.d + (e.h ? ', ' + e.h : '')],
@@ -2427,12 +2560,13 @@
         const ref = t.reference || t.code || t;
         const box = $(`#qr-box-${idx}`);
         if (!box) return;
+        const qrContent = t.qrText || buildTicketQrText(ref, { evId: e.id, z: zIdx, pt: ptIdx, num: idx + 1, qty: totalQty, nom: passagerNom });
         if (t.qrDataUrl) {
-          box.innerHTML = `<img src="${t.qrDataUrl}" alt="QR code ${ref}" width="150" height="150">`;
+          box.innerHTML = `<img src="${t.qrDataUrl}" alt="QR code ${ref}" width="160" height="160">`;
         } else if (window.QRCode) {
-          new QRCode(box, { text: ref, width: 150, height: 150, colorDark: '#1b1f24', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.M });
+          new QRCode(box, { text: qrContent, width: 160, height: 160, colorDark: '#1b1f24', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.L });
         } else {
-          box.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(ref)}" alt="QR code" width="150" height="150">`;
+          box.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrContent)}" alt="QR code" width="160" height="160">`;
         }
       });
 
@@ -2445,9 +2579,12 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ reference: refs[0], references: refs })
             });
-            const jSend = await rSend.json();
-            toast(jSend.message || 'E-mail renvoyé à ' + d.ml + '.');
-            return;
+            const ct = rSend.headers.get('content-type') || '';
+            if (rSend.ok && ct.includes('application/json')) {
+              const jSend = await rSend.json();
+              toast(jSend.message || 'E-mail renvoyé à ' + d.ml + '.');
+              return;
+            }
           } catch (err) { }
         }
         try {
@@ -2466,43 +2603,58 @@
     async function finish() {
       const e = E(), r = PT(), d = Object.fromEntries(new FormData(f)), pm = PM.find(x => x[0] == S.pm)[1];
       const qty = Math.max(1, Math.min(5, S.qty || 1));
+      const passagerNom = (d.pr + ' ' + d.nm).trim();
+      const zIdx = typeof S.z === 'number' ? S.z : Math.max(0, RL.findIndex(x => x.n === r.z));
+      const ptIdx = typeof S.pt === 'number' ? S.pt : 0;
       nx.disabled = true; nx.innerHTML = '<span class="sp"></span> Confirmation en cours…';
 
       let tickets = null;
       let sentViaBackend = false;
 
-      try {
-        const resp = await fetch(API_BASE + '/api/reservations', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prenom: d.pr,
-            nom: d.nm,
-            telephone: d.tel,
-            email: d.ml,
-            eventId: S.ev,
-            zone: S.z,
-            pointRelaisIndex: S.pt,
-            modePaiement: S.pm,
-            quantite: qty
-          })
-        });
-        if (resp.ok) {
-          const json = await resp.json();
-          if (Array.isArray(json.tickets) && json.tickets.length > 0) {
-            tickets = json.tickets.map(t => ({
-              numero: t.numero,
-              reference: t.reference || t.code,
-              qrDataUrl: t.qrDataUrl || null,
-              label: t.label
-            }));
-          } else if (json.reference) {
-            tickets = [{ numero: 1, reference: json.reference, qrDataUrl: json.qrDataUrl }];
+      if (!isStaticOnlyHost()) {
+        try {
+          const resp = await fetch(API_BASE + '/api/reservations', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prenom: d.pr,
+              nom: d.nm,
+              telephone: d.tel,
+              email: d.ml,
+              eventId: S.ev,
+              zone: S.z,
+              pointRelaisIndex: S.pt,
+              modePaiement: S.pm,
+              quantite: qty
+            })
+          });
+          const ct = resp.headers.get('content-type') || '';
+          if (resp.ok && ct.includes('application/json')) {
+            const json = await resp.json();
+            if (Array.isArray(json.tickets) && json.tickets.length > 0) {
+              tickets = json.tickets.map((t, idx) => {
+                const ref = t.reference || t.code;
+                return {
+                  numero: t.numero || (idx + 1),
+                  reference: ref,
+                  qrDataUrl: t.qrDataUrl || null,
+                  qrText: t.qrText || buildTicketQrText(ref, { evId: e.id, z: zIdx, pt: ptIdx, num: idx + 1, qty, nom: passagerNom }),
+                  label: t.label
+                };
+              });
+            } else if (json.reference) {
+              tickets = [{
+                numero: 1,
+                reference: json.reference,
+                qrDataUrl: json.qrDataUrl,
+                qrText: buildTicketQrText(json.reference, { evId: e.id, z: zIdx, pt: ptIdx, num: 1, qty: 1, nom: passagerNom })
+              }];
+            }
+            sentViaBackend = true;
           }
-          sentViaBackend = true;
+        } catch (err) {
+          console.info('[TICKWAY] Backend non détecté, envoi direct via EmailJS.');
         }
-      } catch (err) {
-        console.info('[TICKWAY] Backend non détecté sur le port 3000, envoi direct via EmailJS.');
       }
 
       // Si pas de serveur backend actif : générer N références uniques et envoyer les N QR codes différents via EmailJS
@@ -2513,7 +2665,11 @@
           let code = genLocalRef();
           while (used.has(code)) code = genLocalRef();
           used.add(code);
-          tickets.push({ numero: i, reference: code });
+          tickets.push({
+            numero: i,
+            reference: code,
+            qrText: buildTicketQrText(code, { evId: e.id, z: zIdx, pt: ptIdx, num: i, qty, nom: passagerNom })
+          });
         }
         try {
           await sendEmailJSDirect(d, tickets, e, r, pm);
@@ -2540,7 +2696,6 @@
 
     /* Animations au scroll */
     const nav = $('#nav'), bar = $('#bar'), glow = $('#glow'), bgt = $('#bgt'), tl = $('#tl'), sts = $$('.st'), sec = $('#events'), hero = $('#hero'); let q;
-    // Halo lumineux qui suit la souris dans la section d'accueil
     hero && hero.addEventListener('pointermove', e => { const b = hero.getBoundingClientRect(); hero.style.setProperty('--hx', (e.clientX - b.left) + 'px'); hero.style.setProperty('--hy', (e.clientY - b.top) + 'px') });
     function tick() {
       const y = scrollY, H = innerHeight, m = document.documentElement.scrollHeight - H;
@@ -2560,99 +2715,366 @@
       }; c.onmouseleave = () => c.style.transform = ''
     });
 
-    /* Contrôle des billets : appel API atomique au serveur */
+    /* Contrôle des billets : scanner haute précision + validation serveur ou locale signée */
+    const scannedTokenCache = {};
+    let pendingScan = null;
+    let lastScan = { code: '', time: 0 };
+
     function logAdd(code, s) { const row = document.createElement('div'); row.className = 'logr'; row.innerHTML = `<span>${esc(code)}</span><span>${s} · ${new Date().toLocaleTimeString('fr-FR').slice(0, 5)}</span>`; $('#log').prepend(row) }
+
+    function syncAuthUI() {
+      const hasKey = !!(localStorage.getItem('tickway_validate_key') || '').trim();
+      if ($('#authLocked')) $('#authLocked').hidden = hasKey;
+      if ($('#authUnlocked')) $('#authUnlocked').hidden = !hasKey;
+    }
+
+    function playFeedback(kind) {
+      try {
+        if (navigator.vibrate) {
+          navigator.vibrate(kind === 'ok' ? 120 : [100, 60, 100]);
+        }
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (!Ctx) return;
+        const ctx = new Ctx();
+        const beep = (freq, start, dur) => {
+          const osc = ctx.createOscillator(), gain = ctx.createGain();
+          osc.type = kind === 'ok' ? 'sine' : 'triangle';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.12, ctx.currentTime + start);
+          gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+          osc.connect(gain); gain.connect(ctx.destination);
+          osc.start(ctx.currentTime + start);
+          osc.stop(ctx.currentTime + start + dur);
+        };
+        if (kind === 'ok') { beep(880, 0, 0.12); beep(1174, 0.1, 0.16); }
+        else { beep(280, 0, 0.14); beep(220, 0.16, 0.2); }
+      } catch (err) { }
+    }
+
+    function parseScannedRaw(raw) {
+      const text = (raw || '').trim();
+      if (!text) return { code: '', token: '' };
+      const match = text.match(/TW-[A-Z0-9]{4}-[A-Z0-9]{4}/i);
+      let code = match ? match[0].toUpperCase() : text.toUpperCase();
+      let token = '';
+      const qPos = text.indexOf('?');
+      if (qPos >= 0) {
+        try {
+          const sp = new URLSearchParams(text.slice(qPos + 1));
+          token = sp.get('d') || sp.get('p') || '';
+          if (!match) {
+            const cParam = (sp.get('c') || sp.get('code') || '').trim().toUpperCase();
+            if (cParam) code = cParam;
+          }
+        } catch (err) { }
+      }
+      return { code, token };
+    }
 
     function renderVerifResult(code, json, status) {
       const res = $('#res');
       if (json.statut === 'valide_maintenant') {
+        playFeedback('ok');
         res.className = 'res ok2';
-        res.innerHTML = ic('ck') + `<div><b>Billet valide — entrée autorisée</b><p class="mut">${esc(json.passager)} — ${esc(json.evenement)}, ${esc(json.date)}<br>Point relais : ${esc(json.pointRelais)} · ${fmt(json.montant)}</p></div>`;
+        res.innerHTML = ic('ck') + `<div><b>Billet valide — entrée autorisée</b><p class="mut">${esc(json.passager)} — ${esc(json.evenement)}${json.date ? ', ' + esc(json.date) : ''}<br>Point relais : ${esc(json.pointRelais)} · ${fmt(json.montant)}</p></div>`;
         logAdd(code, 'validé');
         $('#codeIn').value = '';
       } else if (json.statut === 'deja_utilise') {
+        playFeedback('warn');
         const dt = json.utiliseLe ? new Date(json.utiliseLe).toLocaleString('fr-FR') : 'antérieurement';
         res.className = 'res warn';
         res.innerHTML = ic('warn') + `<div><b>Billet déjà utilisé</b><p class="mut">${esc(json.passager || 'Passager')} — ${esc(json.evenement || 'Événement')}. Entrée déjà enregistrée le ${dt}.</p></div>`;
         logAdd(code, 'déjà utilisé');
+      } else if (json.statut === 'invalide') {
+        playFeedback('bad');
+        res.className = 'res bad';
+        res.innerHTML = ic('x') + `<div><b>Billet invalide</b><p class="mut">${esc(json.message || 'Ce QR code n’est pas authentique.')}</p></div>`;
+        logAdd(code, 'invalide');
       } else if (json.statut === 'introuvable') {
+        playFeedback('bad');
         res.className = 'res bad';
         res.innerHTML = ic('x') + `<div><b>Code introuvable</b><p class="mut">« ${esc(code)} » ne correspond à aucune réservation.</p></div>`;
         logAdd(code, 'introuvable');
       } else if (status === 401) {
+        playFeedback('bad');
         localStorage.removeItem('tickway_validate_key');
+        syncAuthUI();
         res.className = 'res bad';
-        res.innerHTML = ic('x') + `<div><b>Clé d’accès non reconnue</b><p class="mut">${esc(json.message || 'Clé invalide.')} Cliquez à nouveau pour réintroduire la clé.</p></div>`;
+        res.innerHTML = ic('x') + `<div><b>Clé d’accès non reconnue</b><p class="mut">${esc(json.message || 'Clé invalide.')} Vérifiez la clé ci-dessus.</p></div>`;
       } else {
+        playFeedback('bad');
         res.className = 'res bad';
         res.innerHTML = ic('x') + `<div><b>Erreur</b><p class="mut">${esc(json.message || 'Erreur lors du contrôle.')}</p></div>`;
       }
     }
 
-    async function verif(code) {
-      code = (code || '').trim().toUpperCase();
+    async function verif(rawInput, explicitToken = '') {
+      const parsed = parseScannedRaw(rawInput);
+      const code = parsed.code;
+      const token = explicitToken || parsed.token || scannedTokenCache[code] || '';
       if (!code) return;
+      if (token) scannedTokenCache[code] = token;
+      $('#codeIn').value = code;
+
       const res = $('#res');
-      let key = localStorage.getItem('tickway_validate_key') || '';
+      const key = (localStorage.getItem('tickway_validate_key') || '').trim();
+      syncAuthUI();
+
       if (!key) {
-        key = prompt("Entrez la clé secrète équipe (X-Api-Key) :", "cle_secrete_equipe_terrain_2026");
-        if (key) {
-          key = key.trim();
-          localStorage.setItem('tickway_validate_key', key);
-        }
-      }
-      if (!key) {
-        res.className = 'res bad';
-        res.innerHTML = ic('x') + '<div><b>Clé d’accès manquante</b><p class="mut">La clé API équipe est requise pour valider les billets.</p></div>';
+        pendingScan = { code, token };
+        res.className = 'res warn';
+        res.innerHTML = ic('warn') + `<div><b>Billet détecté : ${esc(code)}</b><p class="mut">Entrez la clé secrète équipe dans l’encadré tout en haut puis cliquez sur « Activer » pour valider ce billet.</p></div>`;
+        $('#keyIn') && $('#keyIn').focus();
         return;
       }
 
       res.className = 'res';
-      res.innerHTML = '<span class="sp" style="border-color:#0a74b8;border-top-color:transparent"></span><div><b>Vérification en cours…</b></div>';
+      res.innerHTML = '<span class="sp" style="border-color:#0a74b8;border-top-color:transparent"></span><div><b>Vérification de ' + esc(code) + '…</b></div>';
 
-      try {
-        const resp = await fetch(API_BASE + '/api/validate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Api-Key': key
-          },
-          body: JSON.stringify({ reference: code })
-        });
-        const json = await resp.json();
-        renderVerifResult(code, json, resp.status);
-      } catch (err) {
-        // Bascule automatique en mode validation locale si le serveur Node.js n'est pas lancé
-        console.info('[VALIDATE] Serveur Node.js non actif, validation locale activée.');
-        if (key !== 'cle_secrete_equipe_terrain_2026') {
-          renderVerifResult(code, { message: "Clé d'API invalide (attendu : cle_secrete_equipe_terrain_2026)." }, 401);
-          return;
+      if (!isStaticOnlyHost()) {
+        try {
+          const resp = await fetch(API_BASE + '/api/validate', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Api-Key': key
+            },
+            body: JSON.stringify({ reference: code })
+          });
+          const ct = resp.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const json = await resp.json();
+            renderVerifResult(code, json, resp.status);
+            return;
+          }
+        } catch (err) {
+          console.info('[VALIDATE] Serveur central indisponible, validation locale activée.');
         }
-        const localRes = localValidateTicket(code);
-        renderVerifResult(code, localRes, 200);
       }
+
+      if (key !== 'cle_secrete_equipe_terrain_2026') {
+        renderVerifResult(code, { message: "Clé d'API invalide (attendu : cle_secrete_equipe_terrain_2026)." }, 401);
+        return;
+      }
+      const localRes = localValidateTicket(code, token);
+      renderVerifResult(code, localRes, 200);
+    }
+
+    if ($('#keySaveBtn')) {
+      $('#keySaveBtn').onclick = () => {
+        const val = ($('#keyIn').value || '').trim();
+        if (!val) { toast('Veuillez saisir la clé équipe.'); return; }
+        localStorage.setItem('tickway_validate_key', val);
+        $('#keyIn').value = '';
+        syncAuthUI();
+        toast('Appareil équipe activé.');
+        if (pendingScan) {
+          const p = pendingScan;
+          pendingScan = null;
+          verif(p.code, p.token);
+        }
+      };
+      $('#keyIn').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('#keySaveBtn').click(); } };
+    }
+    if ($('#keyLogoutBtn')) {
+      $('#keyLogoutBtn').onclick = () => {
+        localStorage.removeItem('tickway_validate_key');
+        syncAuthUI();
+        toast('Appareil déconnecté.');
+      };
     }
 
     $('#codeBtn').onclick = () => verif($('#codeIn').value);
     $('#codeIn').onkeydown = e => { if (e.key == 'Enter') verif(e.target.value) };
-    let camS, camR; const vid = $('#vid'), camCv = document.createElement('canvas'), camCx = camCv.getContext('2d', { willReadFrequently: true });
-    function camStop() { camS && camS.getTracks().forEach(t => t.stop()); camS = null; cancelAnimationFrame(camR); $('#camMsg').textContent = 'Caméra arrêtée.'; $('#camBtn').innerHTML = ic('scan') + 'Démarrer le scanner' }
-    function camLoop() {
-      if (!camS) return; if (vid.videoWidth) {
-        camCv.width = vid.videoWidth; camCv.height = vid.videoHeight; camCx.drawImage(vid, 0, 0);
-        const im = camCx.getImageData(0, 0, camCv.width, camCv.height), qr = window.jsQR && jsQR(im.data, im.width, im.height);
-        if (qr && qr.data) { const c = qr.data; camStop(); $('#codeIn').value = c; verif(c); return }
-      } camR = requestAnimationFrame(camLoop)
+
+    function ensureJsQR() {
+      if (window.jsQR) return Promise.resolve(true);
+      return new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = 'https://unpkg.com/jsqr@1.4.0/dist/jsQR.js';
+        s.onload = () => resolve(!!window.jsQR);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
     }
-    $('#camBtn').onclick = async () => {
-      if (camS) { camStop(); return }
-      try {
-        camS = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); vid.srcObject = camS; await vid.play();
-        $('#camMsg').textContent = 'Visez le QR code du billet.'; $('#camBtn').innerHTML = ic('x') + 'Arrêter le scanner'; camLoop()
+
+    let nativeBD = null;
+    if ('BarcodeDetector' in window) {
+      try { nativeBD = new BarcodeDetector({ formats: ['qr_code'] }); } catch (e) { nativeBD = null; }
+    }
+
+    let camS = null, camTimer = null, camBusy = false;
+    const vid = $('#vid'), camCv = document.createElement('canvas'), camCx = camCv.getContext('2d', { willReadFrequently: true });
+
+    function camStop() {
+      if (camS) camS.getTracks().forEach(t => t.stop());
+      camS = null;
+      if (camTimer) clearTimeout(camTimer);
+      camTimer = null;
+      camBusy = false;
+      $('#camMsg').textContent = 'Caméra arrêtée.';
+      $('#camBtn').innerHTML = ic('scan') + 'Démarrer le scanner';
+    }
+
+    function handleScannedRaw(raw, fromPhoto = false) {
+      const { code, token } = parseScannedRaw(raw);
+      if (!code) return false;
+      const now = Date.now();
+      if (!fromPhoto && code === lastScan.code && (now - lastScan.time) < 4000) {
+        return false;
       }
-      catch (err) { $('#camMsg').textContent = 'Caméra inaccessible : utilisez la saisie manuelle ci-dessous.' }
+      lastScan = { code, time: now };
+      if (token) scannedTokenCache[code] = token;
+      verif(code, token);
+      return true;
+    }
+
+    async function scanFrameOnce() {
+      if (!camS || camBusy) return;
+      if (vid.readyState >= 2 && vid.videoWidth > 0 && vid.videoHeight > 0) {
+        camBusy = true;
+        try {
+          if (nativeBD) {
+            try {
+              const found = await nativeBD.detect(vid);
+              if (found && found.length && found[0].rawValue) {
+                handleScannedRaw(found[0].rawValue, false);
+                camBusy = false;
+                return;
+              }
+            } catch (e) { }
+          }
+          if (window.jsQR) {
+            const maxSide = 560;
+            const scale = Math.min(1, maxSide / Math.max(vid.videoWidth, vid.videoHeight));
+            const w = Math.round(vid.videoWidth * scale), h = Math.round(vid.videoHeight * scale);
+            if (camCv.width !== w || camCv.height !== h) { camCv.width = w; camCv.height = h; }
+            camCx.drawImage(vid, 0, 0, w, h);
+            const im = camCx.getImageData(0, 0, w, h);
+            const qr = jsQR(im.data, w, h, { inversionAttempts: 'attemptBoth' });
+            if (qr && qr.data) {
+              handleScannedRaw(qr.data, false);
+            }
+          }
+        } catch (e) { }
+        camBusy = false;
+      }
+    }
+
+    function camLoop() {
+      if (!camS) return;
+      scanFrameOnce().finally(() => {
+        if (camS) camTimer = setTimeout(() => requestAnimationFrame(camLoop), 90);
+      });
+    }
+
+    $('#camBtn').onclick = async () => {
+      if (camS) { camStop(); return; }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        $('#camMsg').textContent = 'La caméra en direct exige HTTPS (ex: Netlify). Utilisez le bouton « Scanner une photo » à droite.';
+        return;
+      }
+      $('#camMsg').textContent = 'Ouverture de la caméra…';
+      await ensureJsQR();
+      try {
+        try {
+          camS = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+        } catch (e1) {
+          camS = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+        vid.srcObject = camS;
+        await vid.play();
+        $('#camMsg').textContent = 'Visez le QR code du billet (scan continu actif).';
+        $('#camBtn').innerHTML = ic('x') + 'Arrêter le scanner';
+        camLoop();
+      } catch (err) {
+        const msg = err && err.name === 'NotAllowedError'
+          ? 'Accès caméra refusé : autorisez la caméra dans les paramètres du navigateur ou utilisez « Scanner une photo ».'
+          : 'Caméra en direct indisponible : utilisez le bouton « Scanner une photo ».';
+        $('#camMsg').textContent = msg;
+      }
     };
-    function route() { const ctl = location.hash.slice(1) == 'controle'; $('main').hidden = ctl; $('#controle').hidden = !ctl; if (!ctl) camStop() }
+
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = e => { URL.revokeObjectURL(url); reject(e); };
+        img.src = url;
+      });
+    }
+
+    if ($('#qrFileIn')) {
+      $('#qrFileIn').onchange = async ev => {
+        const file = ev.target.files && ev.target.files[0];
+        ev.target.value = '';
+        if (!file) return;
+        const resEl = $('#res');
+        resEl.className = 'res';
+        resEl.innerHTML = '<span class="sp" style="border-color:#0a74b8;border-top-color:transparent"></span><div><b>Analyse de la photo…</b></div>';
+        try {
+          await ensureJsQR();
+          const img = await loadImageFromFile(file);
+          if (nativeBD) {
+            try {
+              const found = await nativeBD.detect(img);
+              if (found && found.length && found[0].rawValue) {
+                handleScannedRaw(found[0].rawValue, true);
+                return;
+              }
+            } catch (e) { }
+          }
+          if (window.jsQR) {
+            for (const maxSide of [960, 560, 360]) {
+              const scale = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+              const w = Math.max(1, Math.round((img.naturalWidth || img.width) * scale));
+              const h = Math.max(1, Math.round((img.naturalHeight || img.height) * scale));
+              camCv.width = w; camCv.height = h;
+              camCx.drawImage(img, 0, 0, w, h);
+              const im = camCx.getImageData(0, 0, w, h);
+              const qr = jsQR(im.data, w, h, { inversionAttempts: 'attemptBoth' });
+              if (qr && qr.data) {
+                handleScannedRaw(qr.data, true);
+                return;
+              }
+            }
+          }
+          playFeedback('bad');
+          resEl.className = 'res bad';
+          resEl.innerHTML = ic('x') + '<div><b>Aucun QR code détecté</b><p class="mut">Prenez une photo nette et bien cadrée du QR code et réessayez.</p></div>';
+        } catch (err) {
+          playFeedback('bad');
+          resEl.className = 'res bad';
+          resEl.innerHTML = ic('x') + '<div><b>Erreur de lecture image</b><p class="mut">Impossible de lire ce fichier image.</p></div>';
+        }
+      };
+    }
+
+    function checkScannedUrlParams() {
+      syncAuthUI();
+      const h = location.hash || '';
+      const qIdx = h.indexOf('?');
+      const sp = new URLSearchParams(qIdx >= 0 ? h.slice(qIdx + 1) : location.search.slice(1));
+      const c = (sp.get('c') || sp.get('code') || '').trim().toUpperCase();
+      const dToken = sp.get('d') || sp.get('p') || '';
+      if (c) {
+        if (dToken) scannedTokenCache[c] = dToken;
+        verif(c, dToken);
+      }
+    }
+
+    function route() {
+      const sp = new URLSearchParams(location.search);
+      const ctl = location.hash.startsWith('#controle') || sp.has('c') || sp.has('code');
+      $('main').hidden = ctl;
+      $('#controle').hidden = !ctl;
+      if (!ctl) {
+        camStop();
+      } else {
+        checkScannedUrlParams();
+      }
+    }
     addEventListener('hashchange', route); route();
   </script>
 </body>
