@@ -1702,6 +1702,77 @@
       transform: scale(.97)
     }
 
+    .qr-dl {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      margin-top: 4px;
+      padding: 8px 14px;
+      border-radius: 99px;
+      border: 1px solid rgba(255, 255, 255, .24);
+      background: rgba(255, 255, 255, .08);
+      color: var(--w);
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s, border-color .2s, transform .2s
+    }
+
+    .qr-dl:hover {
+      background: var(--od);
+      border-color: var(--od);
+      transform: translateY(-1px)
+    }
+
+    .qr-dl .i {
+      width: 15px;
+      height: 15px
+    }
+
+    @media print {
+      body {
+        background: #fff !important;
+        color: #1b1f24 !important
+      }
+
+      header,
+      .hero,
+      .mq,
+      #service,
+      #etapes,
+      #events,
+      #relais,
+      #reserver>.hd,
+      #rc,
+      #controle,
+      footer,
+      #toast,
+      #bar,
+      .done .ac,
+      .qr-dl {
+        display: none !important
+      }
+
+      #reserver {
+        padding: 0 !important
+      }
+
+      .wz,
+      .main {
+        display: block !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important
+      }
+
+      .qr-card {
+        border: 1.5px solid #cbd5e1 !important;
+        break-inside: avoid;
+        page-break-inside: avoid
+      }
+    }
+
     @media(prefers-reduced-motion:reduce) {
       * {
         animation-duration: .01ms !important;
@@ -1779,6 +1850,14 @@
       <symbol id="i-x" viewBox="0 0 24 24">
         <circle cx="12" cy="12" r="9" />
         <path d="M9 9l6 6M15 9l-6 6" />
+      </symbol>
+      <symbol id="i-dl" viewBox="0 0 24 24">
+        <path d="M12 3v12m0 0l-4-4m4 4l4-4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </symbol>
+      <symbol id="i-pr" viewBox="0 0 24 24">
+        <path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+        <rect x="6" y="14" width="12" height="7" rx="1" />
       </symbol>
     </defs>
   </svg>
@@ -2525,6 +2604,244 @@
       console.log(`[EMAILJS] ✓ ${totalQty} QR code(s) envoyé(s) avec succès à ${d.ml}`);
     }
 
+    function drawRoundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function wrapCanvasText(ctx, text, x, y, maxW, lineH, maxLines = 2) {
+      const words = String(text || '').split(/\s+/);
+      let line = '', lines = [];
+      for (const w of words) {
+        const test = line ? line + ' ' + w : w;
+        if (ctx.measureText(test).width > maxW && line) {
+          lines.push(line);
+          line = w;
+          if (lines.length === maxLines) break;
+        } else {
+          line = test;
+        }
+      }
+      if (line && lines.length < maxLines) lines.push(line);
+      lines.forEach((l, i) => ctx.fillText(l, x, y + i * lineH));
+      return lines.length;
+    }
+
+    function loadCorsImage(src) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        if (!src.startsWith('data:')) img.crossOrigin = 'anonymous';
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = src;
+      });
+    }
+
+    async function getQrDrawable(idx, qrContent, qrDataUrl) {
+      const box = $(`#qr-box-${idx}`);
+      if (box) {
+        const cv = box.querySelector('canvas');
+        if (cv && cv.width > 0) return cv;
+      }
+      if (qrDataUrl) {
+        try { return await loadCorsImage(qrDataUrl); } catch (err) { }
+      }
+      if (window.QRCode) {
+        const tmp = document.createElement('div');
+        new QRCode(tmp, { text: qrContent, width: 260, height: 260, colorDark: '#1b1f24', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.L });
+        const tmpCv = tmp.querySelector('canvas');
+        if (tmpCv && tmpCv.width > 0) return tmpCv;
+      }
+      if (box) {
+        const img = box.querySelector('img');
+        if (img && img.src) {
+          try { return await loadCorsImage(img.src); } catch (err) { }
+        }
+      }
+      return loadCorsImage('https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=10&data=' + encodeURIComponent(qrContent));
+    }
+
+    async function downloadTicketPng(idx, info) {
+      const W = 900, H = 1260;
+      const cv = document.createElement('canvas');
+      cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d');
+
+      // Fond blanc carte
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+
+      // En-tête sombre
+      ctx.fillStyle = '#1b1f24';
+      ctx.fillRect(0, 0, W, 218);
+
+      // Bande supérieure dégradée bleu -> or
+      const grad = ctx.createLinearGradient(0, 0, W, 0);
+      grad.addColorStop(0, '#0a74b8');
+      grad.addColorStop(1, '#e0a526');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, 10);
+
+      // Logo carré bleu + T
+      drawRoundRect(ctx, 56, 54, 62, 62, 14);
+      ctx.fillStyle = '#0a74b8';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 7;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(71, 75); ctx.lineTo(103, 75);
+      ctx.moveTo(87, 75); ctx.lineTo(87, 100);
+      ctx.stroke();
+
+      // Marque TickWay
+      ctx.textBaseline = 'alphabetic';
+      ctx.font = '800 42px "Bricolage Grotesque", system-ui, sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('Tick', 136, 92);
+      const tickW = ctx.measureText('Tick').width;
+      ctx.fillStyle = '#e0a526';
+      ctx.fillText('Way', 136 + tickW, 92);
+
+      ctx.font = '600 17px "Instrument Sans", system-ui, sans-serif';
+      ctx.fillStyle = '#a9b4c0';
+      ctx.fillText('PASS NAVETTE CONCERT · ABIDJAN', 136, 122);
+
+      // Badge numéro billet en haut à droite
+      const badgeTxt = info.badge.toUpperCase();
+      ctx.font = '700 18px "Instrument Sans", system-ui, sans-serif';
+      const badgeW = Math.max(170, ctx.measureText(badgeTxt).width + 44);
+      drawRoundRect(ctx, W - 56 - badgeW, 66, badgeW, 44, 22);
+      ctx.fillStyle = '#e0a526';
+      ctx.fill();
+      ctx.fillStyle = '#1b1f24';
+      ctx.textAlign = 'center';
+      ctx.fillText(badgeTxt, W - 56 - badgeW / 2, 95);
+      ctx.textAlign = 'left';
+
+      // Tag événement
+      const typeTxt = (info.type || 'CONCERT').toUpperCase();
+      ctx.font = '700 15px "Instrument Sans", system-ui, sans-serif';
+      const typeW = ctx.measureText(typeTxt).width + 32;
+      drawRoundRect(ctx, 56, 256, typeW, 34, 17);
+      ctx.fillStyle = '#e6f3fc';
+      ctx.fill();
+      ctx.fillStyle = '#0a74b8';
+      ctx.fillText(typeTxt, 72, 279);
+
+      // Nom événement + date
+      ctx.font = '800 48px "Bricolage Grotesque", system-ui, sans-serif';
+      ctx.fillStyle = '#1b1f24';
+      const evLines = wrapCanvasText(ctx, info.evenement, 56, 344, W - 112, 54, 2);
+
+      ctx.font = '600 24px "Instrument Sans", system-ui, sans-serif';
+      ctx.fillStyle = '#475569';
+      ctx.fillText(info.date, 56, 348 + evLines * 50 - 6);
+
+      // Ligne pointillée + encoches latérales de billet
+      const perfY = 468;
+      ctx.save();
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 3;
+      ctx.setLineDash([12, 10]);
+      ctx.beginPath();
+      ctx.moveTo(40, perfY);
+      ctx.lineTo(W - 40, perfY);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.fillStyle = '#e2e8f0';
+      ctx.beginPath(); ctx.arc(0, perfY, 22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(W, perfY, 22, 0, Math.PI * 2); ctx.fill();
+
+      // Informations passager / point relais / prix
+      const drawField = (label, value, x, y, maxW, color = '#1b1f24') => {
+        ctx.font = '700 15px "Instrument Sans", system-ui, sans-serif';
+        ctx.fillStyle = '#64748b';
+        ctx.fillText(label.toUpperCase(), x, y);
+        ctx.font = '700 24px "Instrument Sans", system-ui, sans-serif';
+        ctx.fillStyle = color;
+        wrapCanvasText(ctx, value, x, y + 34, maxW, 30, 2);
+      };
+
+      drawField('Passager', info.passager, 56, 520, 390);
+      drawField('Zone de départ', info.zone, 474, 520, 370);
+      drawField('Point relais', info.pointRelais, 56, 636, 390, '#0a74b8');
+      drawField('Tarif & paiement', `${info.prix} · ${info.pm}`, 474, 636, 370);
+
+      // Zone QR code
+      drawRoundRect(ctx, 56, 760, W - 112, 395, 22);
+      ctx.fillStyle = '#f4f7fa';
+      ctx.fill();
+      ctx.save();
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([10, 8]);
+      ctx.stroke();
+      ctx.restore();
+
+      // Carré blanc QR code
+      drawRoundRect(ctx, (W - 300) / 2, 786, 300, 300, 16);
+      ctx.fillStyle = '#ffffff';
+      ctx.fill();
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      const qrDrawable = await getQrDrawable(idx, info.qrContent, info.qrDataUrl);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(qrDrawable, (W - 260) / 2, 806, 260, 260);
+      ctx.imageSmoothingEnabled = true;
+
+      // Référence billet sous le QR
+      ctx.textAlign = 'center';
+      ctx.font = '800 34px "Bricolage Grotesque", system-ui, sans-serif';
+      ctx.fillStyle = '#0a74b8';
+      ctx.fillText(info.ref, W / 2, 1130);
+
+      // Pied de page
+      ctx.font = '500 18px "Instrument Sans", system-ui, sans-serif';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText('Billet individuel à usage unique · Présentez ce QR code à la montée', W / 2, 1208);
+      ctx.textAlign = 'left';
+
+      const filename = `TickWay-${info.ref}.png`;
+      await new Promise((resolve) => {
+        if (cv.toBlob) {
+          cv.toBlob(blob => {
+            if (!blob) {
+              const a = document.createElement('a');
+              a.href = cv.toDataURL('image/png');
+              a.download = filename;
+              document.body.appendChild(a); a.click(); a.remove();
+              resolve();
+              return;
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 10000);
+            resolve();
+          }, 'image/png');
+        } else {
+          const a = document.createElement('a');
+          a.href = cv.toDataURL('image/png');
+          a.download = filename;
+          document.body.appendChild(a); a.click(); a.remove();
+          resolve();
+        }
+      });
+    }
+
     function showTicket(tickets, d, e, r, pm, sentViaBackend) {
       const list = Array.isArray(tickets) ? tickets : [{ reference: tickets }];
       const refs = list.map(t => t.reference || t.code || t);
@@ -2537,12 +2854,13 @@
       dn.hidden = false;
 
       const plural = totalQty > 1;
+      const dateLabel = e.d + (e.h ? ', ' + e.h : '');
       const summaryRows = [
         [plural ? 'Références' : 'Référence', refs.join(', ')],
         ['Passager', esc(passagerNom)],
         ['Nombre de places', plural ? `${totalQty} tickets (${totalQty} QR codes)` : '1 ticket (1 QR code)'],
         ['Événement', e.n],
-        ['Date', e.d + (e.h ? ', ' + e.h : '')],
+        ['Date', dateLabel],
         ['Zone', r.z],
         ['Point relais', r.c + ', ' + r.l],
         ['Montant payé', `${totalMontant} (${pm})`]
@@ -2551,24 +2869,76 @@
       const qrCardsHtml = list.map((t, idx) => {
         const ref = t.reference || t.code || t;
         const title = plural ? `Ticket ${idx + 1}/${totalQty}` : 'Votre QR code';
-        return `<div class="qr-card"><b>${title}</b><div class="qr-box" id="qr-box-${idx}"></div><span class="qr-ref">${esc(ref)}</span><span>À usage unique — présentez-le à l’entrée</span></div>`;
+        return `<div class="qr-card"><b>${title}</b><div class="qr-box" id="qr-box-${idx}"></div><span class="qr-ref">${esc(ref)}</span><span>À usage unique — présentez-le à l’entrée</span><button type="button" class="qr-dl" data-dl="${idx}">${ic('dl')}Télécharger ce ticket</button></div>`;
       }).join('');
 
-      dn.innerHTML = `<div class="ok"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg></div><h3>Réservation confirmée</h3><p class="mut">${plural ? `Vos <b>${totalQty} QR codes différents</b> ont été envoyés` : 'Votre reçu et votre QR code unique ont été envoyés'} à <b>${esc(d.ml)}</b>.</p><div class="tk" style="grid-template-columns:1fr"><dl>${summaryRows}</dl></div><div class="qr-grid">${qrCardsHtml}</div><div class="ac"><button type="button" class="btn gh" id="rs">Renvoyer l’e-mail</button><button type="button" class="btn" id="nw">Nouvelle réservation</button></div>`;
+      dn.innerHTML = `<div class="ok"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 14-16"/></svg></div><h3>Réservation confirmée</h3><p class="mut">${plural ? `Vos <b>${totalQty} QR codes différents</b> ont été envoyés` : 'Votre reçu et votre QR code unique ont été envoyés'} à <b>${esc(d.ml)}</b>. Vous pouvez aussi télécharger votre ticket ci-dessous.</p><div class="tk" style="grid-template-columns:1fr"><dl>${summaryRows}</dl></div><div class="qr-grid">${qrCardsHtml}</div><div class="ac"><button type="button" class="btn" id="dlAll">${ic('dl')}${plural ? `Télécharger les ${totalQty} tickets` : 'Télécharger mon ticket'}</button><button type="button" class="btn gh" id="prBtn">${ic('pr')}Imprimer / PDF</button><button type="button" class="btn gh" id="rs">Renvoyer l’e-mail</button><button type="button" class="btn gh" id="nw">Nouvelle réservation</button></div>`;
 
-      list.forEach((t, idx) => {
+      const ticketInfos = list.map((t, idx) => {
         const ref = t.reference || t.code || t;
         const box = $(`#qr-box-${idx}`);
-        if (!box) return;
         const qrContent = t.qrText || buildTicketQrText(ref, { evId: e.id, z: zIdx, pt: ptIdx, num: idx + 1, qty: totalQty, nom: passagerNom });
-        if (t.qrDataUrl) {
-          box.innerHTML = `<img src="${t.qrDataUrl}" alt="QR code ${ref}" width="160" height="160">`;
-        } else if (window.QRCode) {
-          new QRCode(box, { text: qrContent, width: 160, height: 160, colorDark: '#1b1f24', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.L });
-        } else {
-          box.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrContent)}" alt="QR code" width="160" height="160">`;
+        if (box) {
+          if (t.qrDataUrl) {
+            box.innerHTML = `<img src="${t.qrDataUrl}" alt="QR code ${ref}" width="160" height="160">`;
+          } else if (window.QRCode) {
+            new QRCode(box, { text: qrContent, width: 160, height: 160, colorDark: '#1b1f24', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.L });
+          } else {
+            box.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrContent)}" alt="QR code" width="160" height="160">`;
+          }
         }
+        return {
+          ref,
+          qrContent,
+          qrDataUrl: t.qrDataUrl || null,
+          badge: plural ? `Ticket ${idx + 1}/${totalQty}` : 'Billet officiel',
+          type: e.t || 'Concert',
+          evenement: e.n,
+          date: dateLabel,
+          passager: plural ? `${passagerNom} (Ticket ${idx + 1}/${totalQty})` : passagerNom,
+          zone: r.z,
+          pointRelais: `${r.c}, ${r.l}`,
+          prix: fmt(e.p),
+          pm
+        };
       });
+
+      $$('[data-dl]', dn).forEach(btn => {
+        btn.onclick = async () => {
+          const idx = Number(btn.dataset.dl);
+          const info = ticketInfos[idx];
+          if (!info) return;
+          btn.disabled = true;
+          try {
+            await downloadTicketPng(idx, info);
+            toast(`Ticket ${info.ref} téléchargé !`);
+          } catch (err) {
+            console.error('[DOWNLOAD]', err);
+            toast('Utilisez « Imprimer / PDF » pour enregistrer le ticket.');
+          } finally {
+            btn.disabled = false;
+          }
+        };
+      });
+
+      $('#dlAll').onclick = async () => {
+        const b = $('#dlAll');
+        b.disabled = true;
+        try {
+          for (let i = 0; i < ticketInfos.length; i++) {
+            await downloadTicketPng(i, ticketInfos[i]);
+            if (i < ticketInfos.length - 1) await new Promise(r => setTimeout(r, 350));
+          }
+          toast(plural ? `${ticketInfos.length} tickets téléchargés !` : `Ticket ${ticketInfos[0].ref} téléchargé !`);
+        } catch (err) {
+          console.error('[DOWNLOAD]', err);
+          toast('Utilisez « Imprimer / PDF » pour enregistrer vos tickets.');
+        } finally {
+          b.disabled = false;
+        }
+      };
+
+      $('#prBtn').onclick = () => window.print();
 
       $('#rs').onclick = async () => {
         toast('Envoi en cours…');
