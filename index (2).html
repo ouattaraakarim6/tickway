@@ -2090,10 +2090,21 @@
       return (h >>> 0).toString(36);
     }
 
-    function buildTicketQrText(ref, meta) {
-      const origin = (location.protocol.startsWith('http') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')
+    function siteOrigin() {
+      return (location.protocol.startsWith('http') && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1')
         ? location.origin
         : 'https://tickway.netlify.app';
+    }
+
+    // Lien « Mes tickets » : réaffiche les QR codes (et permet de les télécharger) depuis n'importe quel appareil,
+    // même si le client de messagerie bloque les images de l'e-mail.
+    function buildTicketsPageUrl(refs, meta) {
+      const cleanNom = (meta.nom || '').trim().slice(0, 22).replace(/[.|~]/g, ' ').replace(/\s+/g, '_');
+      return `${siteOrigin()}/#tickets?r=${refs.map(encodeURIComponent).join(',')}&e=${encodeURIComponent(meta.evId)}&z=${meta.z}&p=${meta.pt}&n=${encodeURIComponent(cleanNom)}`;
+    }
+
+    function buildTicketQrText(ref, meta) {
+      const origin = siteOrigin();
       if (!meta || !meta.evId) {
         return `${origin}/#controle?c=${encodeURIComponent(ref)}`;
       }
@@ -2471,7 +2482,10 @@
     const EMAILJS_CFG = {
       serviceId: 'service_zkdvg0w',
       templateId: 'template_kkd54a6',
-      publicKey: 'yTONDvVM6zOER6PEC'
+      publicKey: 'yTONDvVM6zOER6PEC',
+      // Adresse e-mail à laquelle les clients peuvent répondre (la vôtre). Un « Reply-To » valide
+      // rassure les filtres anti-spam. Exemple : 'contact@votredomaine.ci'
+      replyTo: ''
     };
 
     function genLocalRef() {
@@ -2509,7 +2523,14 @@
 
     function buildTicketsEmailHtml(tickets, passagerNom, meta, useImgOnly = false) {
       const total = tickets.length;
-      return tickets.map((t, idx) => {
+      const refs = tickets.map(t => t.reference || t.code || t);
+      const pageUrl = buildTicketsPageUrl(refs, { ...meta, nom: passagerNom });
+      // EmailJS limite l'ensemble des variables à 50 Ko : les QR codes « tableau HTML » (visibles même quand
+      // la messagerie bloque les images) sont utilisés tant que le budget le permet, les autres passent en image.
+      const TABLE_BUDGET = 34000;
+      let used = 0;
+
+      const blocks = tickets.map((t, idx) => {
         const ref = t.reference || t.code || t;
         const num = idx + 1;
         const title = total > 1
@@ -2517,17 +2538,26 @@
           : `Ticket — ${passagerNom}`;
         const qrContent = t.qrText || buildTicketQrText(ref, { ...meta, num, qty: total, nom: passagerNom });
         const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(qrContent);
-        const qrVisual = useImgOnly
-          ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
-          : (qrHtmlTable(qrContent) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
+        const imgTag = `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`;
+        let qrVisual = imgTag;
+        if (!useImgOnly) {
+          const tbl = qrHtmlTable(qrContent);
+          if (tbl && used + tbl.length <= TABLE_BUDGET) { qrVisual = tbl; used += tbl.length; }
+        }
         return `<div style="margin:${idx === 0 ? '0' : '14px'} 0 0;padding:16px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:10px;text-align:center">` +
           `<div style="font-size:13px;font-weight:700;color:#0a74b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${title}</div>` +
           qrVisual +
           `<div style="margin:10px 0 2px;font-size:20px;font-weight:800;letter-spacing:1.5px;color:#252a31">${ref}</div>` +
           `<div style="font-size:12px;color:#64748b">Billet individuel à usage unique — présentez ce QR code à la montée</div>` +
-          `<div style="margin-top:6px;font-size:12px"><a href="${qrImgUrl}" target="_blank" style="color:#0a74b8">Afficher le QR code #${num} en image</a></div>` +
           `</div>`;
       }).join('');
+
+      const button = `<div style="text-align:center;margin:0 0 16px">` +
+        `<a href="${pageUrl}" target="_blank" style="display:inline-block;padding:12px 22px;background:#0a74b8;color:#ffffff;font-weight:700;font-size:15px;text-decoration:none;border-radius:8px">${total > 1 ? 'Afficher et télécharger mes tickets' : 'Afficher et télécharger mon ticket'}</a>` +
+        `<div style="font-size:12px;color:#64748b;margin-top:6px">Le QR code ne s’affiche pas ? Ouvrez ce lien : vos tickets s’affichent et se téléchargent en un clic.</div>` +
+        `</div>`;
+
+      return button + blocks;
     }
 
     async function sendEmailJSDirect(d, tickets, e, r, pm) {
@@ -2561,7 +2591,7 @@
           nom: d.nm,
           telephone: d.tel,
           from_name: 'TickWay',
-          reply_to: '',
+          reply_to: EMAILJS_CFG.replyTo || '',
           reference: allRefsStr,
           quantite: totalQty,
           nb_places: totalQty,
@@ -2583,6 +2613,7 @@
           qr_url: qrUrl,
           qr_image: qrUrl,
           qr_html: buildTicketsEmailHtml(list, passagerNom, meta, useImgOnly),
+          tickets_url: buildTicketsPageUrl(refs, { ...meta, nom: passagerNom }),
           subject: totalQty > 1
             ? `Confirmation de vos ${totalQty} billets TickWay (${firstRef})`
             : `Confirmation de votre réservation TickWay (${firstRef})`,
@@ -3442,6 +3473,30 @@
       }
     }
 
+    // Page « Mes tickets » ouverte depuis le lien de l'e-mail : réaffiche les QR codes + téléchargement.
+    function showTicketsFromHash() {
+      const h = location.hash || '';
+      const qIdx = h.indexOf('?');
+      if (!h.startsWith('#tickets') || qIdx < 0) return false;
+      const sp = new URLSearchParams(h.slice(qIdx + 1));
+      const refs = (sp.get('r') || '').split(',').map(s => s.trim().toUpperCase()).filter(x => /^TW-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(x)).slice(0, 5);
+      const e = EV.find(x => x.id === sp.get('e'));
+      const z = parseInt(sp.get('z'), 10), p = parseInt(sp.get('p'), 10);
+      const rel = RL[z] && RL[z].p[p];
+      if (!refs.length || !e || !rel) return false;
+      const nom = (sp.get('n') || '').replace(/_/g, ' ').trim() || 'Passager TickWay';
+      const qty = refs.length;
+      const tickets = refs.map((ref, i) => ({
+        numero: i + 1,
+        reference: ref,
+        qrText: buildTicketQrText(ref, { evId: e.id, z, pt: p, num: i + 1, qty, nom })
+      }));
+      showTicket(tickets, { pr: nom, nm: '', ml: 'votre adresse e-mail', tel: '' }, e, { z: RL[z].n, c: rel[0], l: rel[1] }, 'Wave', false);
+      const rs = $('#rs'); if (rs) rs.remove();
+      const rsv = $('#reserver'); if (rsv) rsv.scrollIntoView();
+      return true;
+    }
+
     function route() {
       const sp = new URLSearchParams(location.search);
       const ctl = location.hash.startsWith('#controle') || sp.has('c') || sp.has('code');
@@ -3449,6 +3504,7 @@
       $('#controle').hidden = !ctl;
       if (!ctl) {
         camStop();
+        showTicketsFromHash();
       } else {
         checkScannedUrlParams();
       }

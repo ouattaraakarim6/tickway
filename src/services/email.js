@@ -31,6 +31,9 @@ function buildQrHtmlTable(text) {
 
 function buildTicketsEmailHtml(tickets, passagerNom, useImgOnly = false) {
   const total = tickets.length;
+  // EmailJS limite les variables à 50 Ko : QR en tableau HTML tant que le budget le permet, sinon image.
+  const TABLE_BUDGET = 34000;
+  let used = 0;
   return tickets.map((t, idx) => {
     const ref = t.reference || t.code || t;
     const qrContent = t.qrText || ref;
@@ -39,15 +42,17 @@ function buildTicketsEmailHtml(tickets, passagerNom, useImgOnly = false) {
       ? `Ticket ${num}/${total} — ${idx === 0 ? passagerNom + ' (Titulaire)' : 'Passager ' + num}`
       : `Ticket — ${passagerNom}`;
     const qrImgUrl = `https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=${encodeURIComponent(qrContent)}`;
-    const qrVisual = useImgOnly
-      ? `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`
-      : (buildQrHtmlTable(qrContent) || `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`);
+    const imgTag = `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`;
+    let qrVisual = imgTag;
+    if (!useImgOnly) {
+      const tbl = buildQrHtmlTable(qrContent);
+      if (tbl && used + tbl.length <= TABLE_BUDGET) { qrVisual = tbl; used += tbl.length; }
+    }
     return `<div style="margin:${idx === 0 ? '0' : '14px'} 0 0;padding:16px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:10px;text-align:center">` +
       `<div style="font-size:13px;font-weight:700;color:#0a74b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${title}</div>` +
       qrVisual +
       `<div style="margin:10px 0 2px;font-size:20px;font-weight:800;letter-spacing:1.5px;color:#252a31">${ref}</div>` +
       `<div style="font-size:12px;color:#64748b">Billet individuel à usage unique — présentez ce QR code à la montée</div>` +
-      `<div style="margin-top:6px;font-size:12px"><a href="${qrImgUrl}" target="_blank" style="color:#0a74b8">Afficher le QR code #${num} en image</a></div>` +
       `</div>`;
   }).join('');
 }
