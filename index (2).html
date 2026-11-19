@@ -2334,7 +2334,7 @@
         d: 'Sam. 26 décembre 2026',
         h: '20 h 00',
         p: 6000,
-        img: 'https://media.tikerama.com/events/cover/5fc0a8a1-93b3-504d-9e97-e90c52a5aa2a/conversions/himra-en-concert-au-stade-ebimpe-6a834348e6886-1786986739-thumbnail.jpg'
+        img: 'https://media.tikerama.com/events/cover/5fc0a8a1-93b3-504d-9e97-e90c52a5aa2a/conversions/himra-en-concert-au-stade-ebimpe-6a834348e6886-1786987394-thumbnail.jpg'
       },
       {
         id: 'm',
@@ -2423,8 +2423,14 @@
       if (st == 0) { let all = true; for (const k in V) { const i = f.elements[k], g = V[k](i.value); i.nextElementSibling.textContent = g ? '' : MS[k]; i.classList.toggle('bad', !g); if (!g) all = false } const b = $('.bad', f); b && b.focus(); return all }
       const v = [0, S.ev, S.pt != null || null][st]; er(pn[st], v ? '' : ['', 'Choisissez un événement pour continuer.', 'Choisissez un point relais.'][st]); return !!v
     }
-    function setEv(id) { S.ev = id; rEv(); rc(); er(pn[1], '') }
-    $('#eo').onclick = e => { const b = e.target.closest('.opt'); b && setEv(b.dataset.id) };
+    function scrollToNext(el = nx) {
+      if (!el) return;
+      setTimeout(() => {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 80);
+    }
+    function setEv(id, doScroll = false) { S.ev = id; rEv(); rc(); er(pn[1], ''); if (doScroll) scrollToNext(nx); }
+    $('#eo').onclick = e => { const b = e.target.closest('.opt'); b && setEv(b.dataset.id, true) };
     $('#qtyBtns').onclick = e => {
       const b = e.target.closest('.qty-btn');
       if (!b) return;
@@ -2434,10 +2440,11 @@
       $('#qtySub').textContent = q > 1 ? `${q} tickets sélectionnés (${q} QR codes différents envoyés par e-mail)` : '1 ticket sélectionné (1 QR code envoyé par e-mail)';
       rc();
       if (st === 3 && E()) nx.textContent = 'Payer ' + fmt(E().p * S.qty);
+      scrollToNext(nx);
     };
     $('#zt').onclick = e => { const b = e.target.closest('button'); if (b && +b.dataset.z != S.z) { S.z = +b.dataset.z; S.pt = null; rRl(); rc() } };
-    $('#ro').onclick = e => { const b = e.target.closest('.opt'); if (b) { S.pt = +b.dataset.i; er(pn[2], ''); $$('.opt', $('#ro')).forEach(x => x.classList.toggle('sel', x == b)); rc() } };
-    $('#pm').onclick = e => { const b = e.target.closest('.opt'); if (b) { S.pm = b.dataset.id; rPm() } };
+    $('#ro').onclick = e => { const b = e.target.closest('.opt'); if (b) { S.pt = +b.dataset.i; er(pn[2], ''); $$('.opt', $('#ro')).forEach(x => x.classList.toggle('sel', x == b)); rc(); scrollToNext(nx) } };
+    $('#pm').onclick = e => { const b = e.target.closest('.opt'); if (b) { S.pm = b.dataset.id; rPm(); scrollToNext(nx) } };
     $('#evs').onclick = e => { const b = e.target.closest('[data-ev]'); if (!b) return; if (!dn.hidden) reset(); setEv(b.dataset.ev); go(st); $('#reserver').scrollIntoView(); toast(E().n + ' sélectionné.') };
     bk.onclick = () => { $('#waveWait').hidden = true; go(st - 1) }; nx.onclick = () => { if (st == 3) return pay(); ok() && go(st + 1) };
     f.onkeydown = e => { if (e.key == 'Enter' && e.target.tagName == 'INPUT') { e.preventDefault(); nx.click() } };
@@ -2451,6 +2458,7 @@
       $('#waveWait').hidden = false;
       nx.disabled = true;
       nx.textContent = 'En attente du paiement…';
+      scrollToNext($('#waveDone'));
     }
     $('#waveReopen').onclick = () => {
       const q = S.qty || 1;
