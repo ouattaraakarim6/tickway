@@ -1,31 +1,34 @@
-// src/services/platformStore.js — Stockage persistant & sécurité (Équipes, Scans, Fondateur, Capacités, Dépenses)
+// src/services/platformStore.js — Équipes, scans, fondateur, capacités, dépenses & sessions (MySQL)
 import crypto from 'node:crypto';
-import fs from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import pool from '../db/pool.js';
 import { EVENTS } from './events.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-function getPlatformDbPath() {
-  return join(process.env.TICKWAY_DATA_DIR || join(__dirname, '..', '..', 'data'), 'platform.json');
-}
+import { deriveKey } from './secrets.js';
 
 const ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
-const SESSION_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes d'inactivité maximum
+const SESSION_TIMEOUT_MS = 15 * 60 * 1000;        // Fondateur : 15 min d'inactivité maximum
+const TEAM_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000; // Équipe terrain : 12 h d'inactivité maximum
 const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_DURATION_MS = 5 * 60 * 1000; // 5 minutes de blocage après 5 échecs
+const LOCKOUT_DURATION_MS = 5 * 60 * 1000;          // 5 minutes de blocage après 5 échecs
+const MAX_SCAN_LOGS = 1000;
+const DEFAULT_TRANSFER_CONFIG = { enabled: true, maxTransfersPerTicket: 1, maxTransfersPerUser: 5 };
 
-function hashKeySha256(rawKey, salt = 'TICKWAY_TEAM_SALT_2026') {
-  return crypto.createHmac('sha256', salt).update(String(rawKey).trim()).digest('hex');
+// ── Utilitaires cryptographiques ──
+export function hashKeySha256(rawKey) {
+  // HMAC-SHA256 avec une clé dérivée de APP_SECRET : une fuite de la base ne suffit pas à tester des clés hors ligne
+  return crypto.createHmac('sha256', deriveKey('team-key')).update(String(rawKey).trim()).digest('hex');
 }
 
-function hashPasswordScrypt(password, saltHex) {
+function sha256(raw) {
+  return crypto.createHash('sha256').update(String(raw)).digest('hex');
+}
+
+export function hashPasswordPbkdf2(password, saltHex) {
   const salt = saltHex || crypto.randomBytes(16).toString('hex');
   const hash = crypto.pbkdf2Sync(String(password), salt, 100000, 64, 'sha256').toString('hex');
   return { salt, hash };
 }
 
-function verifyPasswordScrypt(password, salt, expectedHash) {
+function verifyPasswordPbkdf2(password, salt, expectedHash) {
   if (!salt || !expectedHash) return false;
   const computed = crypto.pbkdf2Sync(String(password), salt, 100000, 64, 'sha256');
   const expected = Buffer.from(expectedHash, 'hex');
@@ -33,7 +36,7 @@ function verifyPasswordScrypt(password, salt, expectedHash) {
   return crypto.timingSafeEqual(computed, expected);
 }
 
-function maskKey(k) {
+export function maskKey(k) {
   const s = String(k || '').trim();
   if (s.length <= 8) return '••••••••';
   return `${s.slice(0, 6)}••••${s.slice(-4)}`;
@@ -46,171 +49,155 @@ export function generateTeamKeyString() {
   return `TW-TEAM-${code.slice(0, 4)}-${code.slice(4, 8)}`;
 }
 
-function defaultPlatformState() {
-  const defaultTeamKey = (process.env.VALIDATE_API_KEY || 'cle_secrete_equipe_terrain_2026').trim();
-  const defaultCapacities = {};
-  for (const ev of EVENTS) {
-    defaultCapacities[ev.id] = 500;
-  }
+function parseJson(value, fallback) {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'object') return value;
+  try { return JSON.parse(value); } catch { return fallback; }
+}
 
-  // Hash PBKDF2-HMAC-SHA256 (100 000 itérations) du code fondateur configuré (aucun mot de passe en clair)
-  let founderAuth = {
-    salt: '9f4c8e2a1b7d6035e8a4c1f290b3d7e6',
-    hash: '5034e62568b34311e25812a72e8c4730e35f21538ddd6a40af26a5c4c1eb8f62aed0093fce3e658f65168b81b01ed8d4c930f381bfa90f38929e5703666ed231',
-    updatedAt: '2026-11-19T23:10:34.000Z',
-  };
-  if (process.env.FOUNDER_PASSWORD && process.env.FOUNDER_PASSWORD.trim().length >= 8) {
-    const { salt, hash } = hashPasswordScrypt(process.env.FOUNDER_PASSWORD.trim());
-    founderAuth = { salt, hash, updatedAt: new Date().toISOString() };
-  }
+function toIso(d) {
+  if (!d) return null;
+  return d instanceof Date ? d.toISOString() : String(d);
+}
 
+function mapTeam(row) {
+  if (!row) return null;
   return {
-    founder: founderAuth,
-    equipes: [
-      {
-        id: 'team-principale',
-        nom: 'Équipe Terrain Principale',
-        cle_hash: hashKeySha256(defaultTeamKey),
-        cle_hint: maskKey(defaultTeamKey),
-        event_ids: ['*'],
-        actif: true,
-        cree_le: new Date().toISOString(),
-      },
-    ],
-    scans_log: [],
-    capacities: defaultCapacities,
-    expenses: [],
-    frais_taux_pct: 0,
-    transfer_config: {
-      enabled: true,
-      maxTransfersPerTicket: 1,
-      maxTransfersPerUser: 5,
-    },
+    id: row.id,
+    nom: row.nom,
+    cle_hash: row.cle_hash,
+    cle_hint: row.cle_hint,
+    event_ids: parseJson(row.event_ids, ['*']),
+    actif: Boolean(row.actif),
+    cree_le: toIso(row.cree_le),
   };
 }
 
-function loadState() {
-  const dbPath = getPlatformDbPath();
-  try {
-    if (!fs.existsSync(dbPath)) {
-      const init = defaultPlatformState();
-      saveState(init);
-      return init;
-    }
-    const raw = JSON.parse(fs.readFileSync(dbPath, 'utf8') || '{}');
-    const def = defaultPlatformState();
-    const rawTc = raw.transfer_config && typeof raw.transfer_config === 'object' ? raw.transfer_config : {};
-    return {
-      founder: raw.founder || def.founder,
-      equipes: Array.isArray(raw.equipes) && raw.equipes.length ? raw.equipes : def.equipes,
-      scans_log: Array.isArray(raw.scans_log) ? raw.scans_log : [],
-      capacities: { ...def.capacities, ...(raw.capacities || {}) },
-      expenses: Array.isArray(raw.expenses) ? raw.expenses : [],
-      frais_taux_pct: Number(raw.frais_taux_pct) || 0,
-      transfer_config: {
-        enabled: rawTc.enabled !== undefined ? Boolean(rawTc.enabled) : true,
-        maxTransfersPerTicket: Number.isFinite(Number(rawTc.maxTransfersPerTicket))
-          ? Math.max(0, Math.min(10, Math.floor(Number(rawTc.maxTransfersPerTicket))))
-          : 1,
-        maxTransfersPerUser: Number.isFinite(Number(rawTc.maxTransfersPerUser))
-          ? Math.max(0, Math.min(50, Math.floor(Number(rawTc.maxTransfersPerUser))))
-          : 5,
-      },
-    };
-  } catch {
-    return defaultPlatformState();
-  }
+// ── Paramètres clé/valeur ──
+async function getSetting(cle, fallback) {
+  const { rows } = await pool.query('SELECT valeur FROM platform_settings WHERE cle = ?', [cle]);
+  return rows.length ? parseJson(rows[0].valeur, fallback) : fallback;
 }
 
-function saveState(state) {
-  const dbPath = getPlatformDbPath();
-  fs.mkdirSync(dirname(dbPath), { recursive: true });
-  fs.writeFileSync(dbPath, JSON.stringify(state, null, 2), 'utf8');
+async function setSetting(cle, value) {
+  await pool.query(
+    'INSERT INTO platform_settings (cle, valeur) VALUES (?, ?) ON DUPLICATE KEY UPDATE valeur = VALUES(valeur)',
+    [cle, JSON.stringify(value)]
+  );
 }
 
-// ── Sessions en mémoire (Équipes & Fondateur) + Protection anti-force-brute ──
-const founderSessions = new Map(); // token -> { createdAt, lastActiveAt, ip }
-const teamSessions = new Map();    // token -> { equipeId, agentId, createdAt, lastActiveAt }
-const loginAttempts = new Map();   // key (ip) -> { count, lockedUntil }
-
-export function checkRateLockout(bucketKey) {
-  const rec = loginAttempts.get(bucketKey);
-  if (!rec) return { locked: false };
-  if (rec.lockedUntil && Date.now() < rec.lockedUntil) {
-    const remainingSec = Math.ceil((rec.lockedUntil - Date.now()) / 1000);
-    return { locked: true, remainingSec };
+// ── Protection anti-force-brute (persistée en base, partagée entre processus) ──
+export async function checkRateLockout(bucketKey) {
+  const { rows } = await pool.query('SELECT count, locked_until FROM login_attempts WHERE bucket = ?', [bucketKey]);
+  const rec = rows[0];
+  if (!rec || !rec.locked_until) return { locked: false };
+  const until = new Date(rec.locked_until).getTime();
+  if (Date.now() < until) {
+    return { locked: true, remainingSec: Math.ceil((until - Date.now()) / 1000) };
   }
-  if (rec.lockedUntil && Date.now() >= rec.lockedUntil) {
-    loginAttempts.delete(bucketKey);
-  }
+  await pool.query('DELETE FROM login_attempts WHERE bucket = ?', [bucketKey]);
   return { locked: false };
 }
 
-export function recordFailedAttempt(bucketKey) {
-  const rec = loginAttempts.get(bucketKey) || { count: 0, lockedUntil: 0 };
-  rec.count += 1;
-  if (rec.count >= MAX_FAILED_ATTEMPTS) {
-    rec.lockedUntil = Date.now() + LOCKOUT_DURATION_MS;
+export async function recordFailedAttempt(bucketKey) {
+  await pool.query(
+    `INSERT INTO login_attempts (bucket, count, updated_at) VALUES (?, 1, UTC_TIMESTAMP(3))
+     ON DUPLICATE KEY UPDATE count = count + 1, updated_at = UTC_TIMESTAMP(3)`,
+    [bucketKey]
+  );
+  const { rows } = await pool.query('SELECT count FROM login_attempts WHERE bucket = ?', [bucketKey]);
+  const count = Number(rows[0] && rows[0].count) || 1;
+  const locked = count >= MAX_FAILED_ATTEMPTS;
+  if (locked) {
+    await pool.query('UPDATE login_attempts SET locked_until = ? WHERE bucket = ?', [
+      new Date(Date.now() + LOCKOUT_DURATION_MS),
+      bucketKey,
+    ]);
   }
-  loginAttempts.set(bucketKey, rec);
-  return {
-    attemptsLeft: Math.max(0, MAX_FAILED_ATTEMPTS - rec.count),
-    locked: rec.count >= MAX_FAILED_ATTEMPTS,
-  };
+  return { attemptsLeft: Math.max(0, MAX_FAILED_ATTEMPTS - count), locked };
 }
 
-export function clearFailedAttempts(bucketKey) {
-  loginAttempts.delete(bucketKey);
+export async function clearFailedAttempts(bucketKey) {
+  await pool.query('DELETE FROM login_attempts WHERE bucket = ?', [bucketKey]);
+}
+
+// ── Sessions (seul le hash SHA-256 du jeton est stocké) ──
+async function createSession({ kind, equipeId = null, agentId = null, ip = null }) {
+  const token = crypto.randomBytes(kind === 'founder' ? 32 : 24).toString('hex');
+  await pool.query(
+    `INSERT INTO admin_sessions (token_hash, kind, equipe_id, agent_id, ip, created_at, last_active_at)
+     VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))`,
+    [sha256(token), kind, equipeId, agentId, ip ? String(ip).slice(0, 64) : null]
+  );
+  // Purge opportuniste des sessions expirées
+  await pool.query(
+    `DELETE FROM admin_sessions
+     WHERE (kind = 'founder' AND last_active_at < ?) OR (kind = 'team' AND last_active_at < ?)`,
+    [new Date(Date.now() - SESSION_TIMEOUT_MS), new Date(Date.now() - TEAM_SESSION_TIMEOUT_MS)]
+  );
+  return token;
+}
+
+async function touchSession(token, kind, timeoutMs) {
+  if (!token) return { valid: false, reason: 'non_connecte' };
+  const tokenHash = sha256(token);
+  const { rows } = await pool.query(
+    'SELECT * FROM admin_sessions WHERE token_hash = ? AND kind = ? LIMIT 1',
+    [tokenHash, kind]
+  );
+  const sess = rows[0];
+  if (!sess) return { valid: false, reason: 'non_connecte' };
+  if (Date.now() - new Date(sess.last_active_at).getTime() > timeoutMs) {
+    await pool.query('DELETE FROM admin_sessions WHERE token_hash = ?', [tokenHash]);
+    return { valid: false, reason: 'expiree' };
+  }
+  await pool.query('UPDATE admin_sessions SET last_active_at = UTC_TIMESTAMP(3) WHERE token_hash = ?', [tokenHash]);
+  return { valid: true, session: sess };
+}
+
+async function revokeTeamSessions(equipeId) {
+  await pool.query(`DELETE FROM admin_sessions WHERE kind = 'team' AND equipe_id = ?`, [equipeId]);
 }
 
 // ── Authentification & Gestion des Équipes ──
-export function findTeamByKey(rawKey) {
+export async function findTeamByKey(rawKey) {
   if (!rawKey) return null;
-  const targetHash = hashKeySha256(rawKey);
-  const bTarget = Buffer.from(targetHash, 'hex');
-  const state = loadState();
-  for (const eq of state.equipes) {
-    if (!eq.cle_hash) continue;
-    const bEq = Buffer.from(eq.cle_hash, 'hex');
-    if (bEq.length === bTarget.length && crypto.timingSafeEqual(bEq, bTarget)) {
-      return eq;
-    }
-  }
-  return null;
+  const { rows } = await pool.query('SELECT * FROM equipes WHERE cle_hash = ? LIMIT 1', [hashKeySha256(rawKey)]);
+  return mapTeam(rows[0]);
 }
 
-export function findTeamById(equipeId) {
-  const state = loadState();
-  return state.equipes.find((e) => e.id === equipeId) || null;
+export async function findTeamById(equipeId) {
+  const { rows } = await pool.query('SELECT * FROM equipes WHERE id = ? LIMIT 1', [equipeId]);
+  return mapTeam(rows[0]);
 }
 
-export function createTeamSession(equipe, agentId) {
-  const token = crypto.randomBytes(24).toString('hex');
+export async function listTeams() {
+  const { rows } = await pool.query('SELECT * FROM equipes ORDER BY cree_le ASC');
+  return rows.map(mapTeam);
+}
+
+export async function createTeamSession(equipe, agentId) {
   const cleanAgent = String(agentId || 'Agent Terrain').trim().slice(0, 40) || 'Agent Terrain';
-  teamSessions.set(token, {
-    equipeId: equipe.id,
-    agentId: cleanAgent,
-    createdAt: Date.now(),
-    lastActiveAt: Date.now(),
-  });
+  const token = await createSession({ kind: 'team', equipeId: equipe.id, agentId: cleanAgent });
   return { token, agentId: cleanAgent };
 }
 
-export function resolveTeamAuth(req) {
+export async function resolveTeamAuth(req) {
   const sessionToken = String(req.headers['x-team-token'] || '').trim();
   const rawKey = String(req.headers['x-api-key'] || '').trim();
-  const headerAgent = String(req.headers['x-agent-id'] || '').trim();
+  const headerAgent = String(req.headers['x-agent-id'] || '').trim().slice(0, 40);
 
-  if (sessionToken && teamSessions.has(sessionToken)) {
-    const sess = teamSessions.get(sessionToken);
-    const eq = findTeamById(sess.equipeId);
-    if (eq && eq.actif) {
-      sess.lastActiveAt = Date.now();
-      return { equipe: eq, agentId: headerAgent || sess.agentId || 'Agent Terrain' };
+  if (sessionToken) {
+    const check = await touchSession(sessionToken, 'team', TEAM_SESSION_TIMEOUT_MS);
+    if (check.valid) {
+      const eq = await findTeamById(check.session.equipe_id);
+      if (eq && eq.actif) {
+        return { equipe: eq, agentId: headerAgent || check.session.agent_id || 'Agent Terrain' };
+      }
     }
   }
   if (rawKey) {
-    const eq = findTeamByKey(rawKey);
+    const eq = await findTeamByKey(rawKey);
     if (eq && eq.actif) {
       return { equipe: eq, agentId: headerAgent || 'Agent Terrain' };
     }
@@ -218,98 +205,115 @@ export function resolveTeamAuth(req) {
   return null;
 }
 
-export function createTeam({ nom, eventIds }) {
-  const state = loadState();
-  const cleanNom = String(nom || '').trim();
+function sanitizeEventIds(eventIds) {
+  if (!Array.isArray(eventIds) || !eventIds.length) return ['*'];
+  const known = new Set(EVENTS.map((e) => e.id));
+  const clean = eventIds.map((e) => String(e)).filter((e) => e === '*' || known.has(e));
+  return clean.length ? clean : ['*'];
+}
+
+export async function createTeam({ nom, eventIds }) {
+  const cleanNom = String(nom || '').trim().slice(0, 150);
   if (!cleanNom) throw new Error("Le nom de l'équipe est requis.");
   const plainKey = generateTeamKeyString();
-  const assigned = Array.isArray(eventIds) && eventIds.length ? eventIds : ['*'];
   const team = {
     id: 'team-' + crypto.randomBytes(4).toString('hex'),
     nom: cleanNom,
     cle_hash: hashKeySha256(plainKey),
     cle_hint: maskKey(plainKey),
-    event_ids: assigned,
+    event_ids: sanitizeEventIds(eventIds),
     actif: true,
     cree_le: new Date().toISOString(),
   };
-  state.equipes.push(team);
-  saveState(state);
+  await pool.query(
+    'INSERT INTO equipes (id, nom, cle_hash, cle_hint, event_ids, actif, cree_le) VALUES (?, ?, ?, ?, ?, 1, ?)',
+    [team.id, team.nom, team.cle_hash, team.cle_hint, JSON.stringify(team.event_ids), new Date(team.cree_le)]
+  );
   return { team, plainKey };
 }
 
-export function updateTeam(equipeId, { nom, eventIds, actif }) {
-  const state = loadState();
-  const team = state.equipes.find((e) => e.id === equipeId);
+export async function updateTeam(equipeId, { nom, eventIds, actif }) {
+  const team = await findTeamById(equipeId);
   if (!team) return null;
-  if (nom !== undefined && String(nom).trim()) team.nom = String(nom).trim();
-  if (Array.isArray(eventIds) && eventIds.length) team.event_ids = eventIds;
-  if (typeof actif === 'boolean') {
-    team.actif = actif;
-    if (!actif) {
-      for (const [tok, sess] of teamSessions.entries()) {
-        if (sess.equipeId === equipeId) teamSessions.delete(tok);
-      }
-    }
-  }
-  saveState(state);
+  if (nom !== undefined && String(nom).trim()) team.nom = String(nom).trim().slice(0, 150);
+  if (Array.isArray(eventIds) && eventIds.length) team.event_ids = sanitizeEventIds(eventIds);
+  if (typeof actif === 'boolean') team.actif = actif;
+  await pool.query('UPDATE equipes SET nom = ?, event_ids = ?, actif = ? WHERE id = ?', [
+    team.nom, JSON.stringify(team.event_ids), team.actif ? 1 : 0, equipeId,
+  ]);
+  if (team.actif === false) await revokeTeamSessions(equipeId);
   return team;
 }
 
-export function resetTeamKey(equipeId) {
-  const state = loadState();
-  const team = state.equipes.find((e) => e.id === equipeId);
+export async function resetTeamKey(equipeId) {
+  const team = await findTeamById(equipeId);
   if (!team) return null;
   const plainKey = generateTeamKeyString();
   team.cle_hash = hashKeySha256(plainKey);
   team.cle_hint = maskKey(plainKey);
-  for (const [tok, sess] of teamSessions.entries()) {
-    if (sess.equipeId === equipeId) teamSessions.delete(tok);
-  }
-  saveState(state);
+  await pool.query('UPDATE equipes SET cle_hash = ?, cle_hint = ? WHERE id = ?', [team.cle_hash, team.cle_hint, equipeId]);
+  await revokeTeamSessions(equipeId);
   return { team, plainKey };
 }
 
-export function deleteTeam(equipeId) {
-  const state = loadState();
-  if (state.equipes.length <= 1) {
+export async function deleteTeam(equipeId) {
+  const { rows } = await pool.query('SELECT COUNT(*) AS cnt FROM equipes');
+  if (Number(rows[0].cnt) <= 1) {
     throw new Error('Impossible de supprimer la dernière équipe.');
   }
-  const idx = state.equipes.findIndex((e) => e.id === equipeId);
-  if (idx < 0) return false;
-  state.equipes.splice(idx, 1);
-  for (const [tok, sess] of teamSessions.entries()) {
-    if (sess.equipeId === equipeId) teamSessions.delete(tok);
-  }
-  saveState(state);
+  const { rowCount } = await pool.query('DELETE FROM equipes WHERE id = ?', [equipeId]);
+  if (!rowCount) return false;
+  await revokeTeamSessions(equipeId);
   return true;
 }
 
 // ── Journalisation des scans & Statistiques Agents (sans données financières) ──
-export function recordScanLog({ reference, passager, eventId, eventNom, resultat, raison, agentId, equipeId, equipeNom }) {
-  const state = loadState();
+function mapScan(row) {
+  return { ...row, scanne_le: toIso(row.scanne_le) };
+}
+
+export async function recordScanLog({ reference, passager, eventId, eventNom, resultat, raison, agentId, equipeId, equipeNom }) {
   const entry = {
-    id: 'sc-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex'),
-    reference: String(reference || '').toUpperCase(),
-    passager: passager || '—',
+    id: 'sc-' + Date.now() + '-' + crypto.randomBytes(3).toString('hex'),
+    reference: String(reference || '').toUpperCase().slice(0, 64),
+    passager: String(passager || '—').slice(0, 255),
     event_id: eventId || null,
-    event_nom: eventNom || '—',
+    event_nom: String(eventNom || '—').slice(0, 255),
     resultat, // 'valide' | 'deja_utilise' | 'invalide'
-    raison: raison || '',
-    agent_id: agentId || 'Agent Terrain',
+    raison: String(raison || '').slice(0, 255),
+    agent_id: String(agentId || 'Agent Terrain').slice(0, 64),
     equipe_id: equipeId || 'team-principale',
-    equipe_nom: equipeNom || 'Équipe Terrain',
+    equipe_nom: String(equipeNom || 'Équipe Terrain').slice(0, 150),
     scanne_le: new Date().toISOString(),
   };
-  state.scans_log.unshift(entry);
-  if (state.scans_log.length > 1000) state.scans_log.length = 1000;
-  saveState(state);
+  await pool.query(
+    `INSERT INTO scans_log (id, reference, passager, event_id, event_nom, resultat, raison, agent_id, equipe_id, equipe_nom, scanne_le)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [entry.id, entry.reference, entry.passager, entry.event_id, entry.event_nom, entry.resultat, entry.raison,
+      entry.agent_id, entry.equipe_id, entry.equipe_nom, new Date(entry.scanne_le)]
+  );
+  // Conserver uniquement les 1000 scans les plus récents (comme l'ancien stockage JSON)
+  const { rows } = await pool.query(
+    `SELECT scanne_le FROM scans_log ORDER BY scanne_le DESC LIMIT 1 OFFSET ${MAX_SCAN_LOGS - 1}`
+  );
+  if (rows.length) {
+    await pool.query('DELETE FROM scans_log WHERE scanne_le < ?', [rows[0].scanne_le]);
+  }
   return entry;
 }
 
-export function getTeamStats(equipeId) {
-  const state = loadState();
-  const logs = state.scans_log.filter((l) => l.equipe_id === equipeId);
+export async function getRecentScans(limit = 100) {
+  const safeLimit = Math.max(1, Math.min(1000, Math.floor(Number(limit) || 100)));
+  const { rows } = await pool.query(`SELECT * FROM scans_log ORDER BY scanne_le DESC LIMIT ${safeLimit}`);
+  return rows.map(mapScan);
+}
+
+export async function getTeamStats(equipeId) {
+  const { rows } = await pool.query(
+    'SELECT * FROM scans_log WHERE equipe_id = ? ORDER BY scanne_le DESC',
+    [equipeId]
+  );
+  const logs = rows.map(mapScan);
   let valides = 0;
   let dejaUtilises = 0;
   let invalides = 0;
@@ -342,125 +346,148 @@ export function getTeamStats(equipeId) {
 }
 
 // ── Authentification Fondateur ──
-export function isFounderConfigured() {
-  const state = loadState();
-  return !!(state.founder && state.founder.hash && state.founder.salt);
+async function getFounderAuth() {
+  const auth = await getSetting('founder', null);
+  return auth && auth.hash && auth.salt ? auth : null;
 }
 
-export function setupFounderPassword(newPassword) {
-  const state = loadState();
-  if (state.founder && state.founder.hash) {
+export async function isFounderConfigured() {
+  return Boolean(await getFounderAuth());
+}
+
+/** La configuration initiale via l'API n'est autorisée qu'hors production (en prod : FOUNDER_PASSWORD). */
+export function isFounderSetupAllowed() {
+  return process.env.NODE_ENV !== 'production';
+}
+
+export async function setupFounderPassword(newPassword) {
+  if (await isFounderConfigured()) {
     throw new Error('Le mot de passe fondateur est déjà configuré.');
   }
   const clean = String(newPassword || '');
   if (clean.length < 8) {
     throw new Error('Le mot de passe fondateur doit contenir au moins 8 caractères.');
   }
-  const { salt, hash } = hashPasswordScrypt(clean);
-  state.founder = { salt, hash, updatedAt: new Date().toISOString() };
-  saveState(state);
+  const { salt, hash } = hashPasswordPbkdf2(clean);
+  // INSERT (et non upsert) : en cas de requêtes concurrentes, une seule configuration réussit
+  const { rowCount } = await pool.query(
+    `INSERT IGNORE INTO platform_settings (cle, valeur) VALUES ('founder', ?)`,
+    [JSON.stringify({ salt, hash, updatedAt: new Date().toISOString() })]
+  );
+  if (!rowCount) throw new Error('Le mot de passe fondateur est déjà configuré.');
   return true;
 }
 
-export function verifyFounderPassword(password) {
-  const state = loadState();
-  if (!state.founder || !state.founder.hash || !state.founder.salt) return false;
-  return verifyPasswordScrypt(password, state.founder.salt, state.founder.hash);
+export async function verifyFounderPassword(password) {
+  const auth = await getFounderAuth();
+  if (!auth) return false;
+  return verifyPasswordPbkdf2(password, auth.salt, auth.hash);
 }
 
-export function changeFounderPassword(currentPassword, newPassword) {
-  if (!verifyFounderPassword(currentPassword)) {
+export async function changeFounderPassword(currentPassword, newPassword) {
+  if (!(await verifyFounderPassword(currentPassword))) {
     throw new Error('Mot de passe actuel incorrect.');
   }
   if (String(newPassword || '').length < 8) {
     throw new Error('Le nouveau mot de passe doit contenir au moins 8 caractères.');
   }
-  const state = loadState();
-  const { salt, hash } = hashPasswordScrypt(newPassword);
-  state.founder = { salt, hash, updatedAt: new Date().toISOString() };
-  saveState(state);
+  const { salt, hash } = hashPasswordPbkdf2(newPassword);
+  await setSetting('founder', { salt, hash, updatedAt: new Date().toISOString() });
   return true;
 }
 
-export function createFounderSession(ip) {
-  const token = crypto.randomBytes(32).toString('hex');
-  founderSessions.set(token, {
-    ip,
-    createdAt: Date.now(),
-    lastActiveAt: Date.now(),
-  });
+export async function createFounderSession(ip) {
+  const token = await createSession({ kind: 'founder', ip });
   return { token, timeoutMs: SESSION_TIMEOUT_MS };
 }
 
-export function verifyFounderSessionToken(token) {
-  if (!token || !founderSessions.has(token)) return { valid: false, reason: 'non_connecte' };
-  const sess = founderSessions.get(token);
-  if (Date.now() - sess.lastActiveAt > SESSION_TIMEOUT_MS) {
-    founderSessions.delete(token);
-    return { valid: false, reason: 'expiree' };
-  }
-  sess.lastActiveAt = Date.now();
-  return { valid: true };
+export async function verifyFounderSessionToken(token) {
+  const check = await touchSession(token, 'founder', SESSION_TIMEOUT_MS);
+  return check.valid ? { valid: true } : { valid: false, reason: check.reason };
 }
 
-export function revokeFounderSession(token) {
-  if (token) founderSessions.delete(token);
+export async function revokeFounderSession(token) {
+  if (token) await pool.query(`DELETE FROM admin_sessions WHERE token_hash = ? AND kind = 'founder'`, [sha256(token)]);
 }
 
 // ── Capacités événements & Dépenses financières ──
-export function getPlatformConfig() {
-  return loadState();
+async function getCapacities() {
+  const capacities = {};
+  for (const ev of EVENTS) capacities[ev.id] = 500;
+  const { rows } = await pool.query('SELECT event_id, capacite FROM event_capacities');
+  for (const r of rows) capacities[r.event_id] = Number(r.capacite) || 500;
+  return capacities;
 }
 
-export function updateEventCapacity(eventId, capacity) {
-  const state = loadState();
-  const cap = Math.max(1, Math.floor(Number(capacity) || 500));
-  state.capacities[eventId] = cap;
-  saveState(state);
-  return state.capacities;
+async function getExpenses() {
+  const { rows } = await pool.query('SELECT * FROM expenses ORDER BY date DESC');
+  return rows.map((r) => ({ ...r, montant: Number(r.montant) || 0, date: toIso(r.date) }));
 }
 
-export function addExpense({ libelle, montant, eventId }) {
-  const state = loadState();
-  const cleanLib = String(libelle || '').trim();
+export async function getTransactionFeeRate() {
+  return Number(await getSetting('frais_taux_pct', 0)) || 0;
+}
+
+/** Vue agrégée équivalente à l'ancien état platform.json (sans données d'authentification). */
+export async function getPlatformConfig() {
+  const [equipes, capacities, expenses, fraisTauxPct, transferConfig] = await Promise.all([
+    listTeams(),
+    getCapacities(),
+    getExpenses(),
+    getTransactionFeeRate(),
+    getTransferConfig(),
+  ]);
+  return {
+    equipes,
+    capacities,
+    expenses,
+    frais_taux_pct: fraisTauxPct,
+    transfer_config: transferConfig,
+  };
+}
+
+export async function updateEventCapacity(eventId, capacity) {
+  if (!EVENTS.some((e) => e.id === eventId)) throw new Error('Événement inconnu.');
+  const cap = Math.max(1, Math.min(100000, Math.floor(Number(capacity) || 500)));
+  await pool.query(
+    'INSERT INTO event_capacities (event_id, capacite) VALUES (?, ?) ON DUPLICATE KEY UPDATE capacite = VALUES(capacite)',
+    [eventId, cap]
+  );
+  return getCapacities();
+}
+
+export async function addExpense({ libelle, montant, eventId }) {
+  const cleanLib = String(libelle || '').trim().slice(0, 255);
   const amt = Math.max(0, Math.round(Number(montant) || 0));
   if (!cleanLib || amt <= 0) throw new Error('Libellé et montant positif requis.');
-  const exp = {
-    id: 'exp-' + Date.now() + '-' + crypto.randomBytes(2).toString('hex'),
-    libelle: cleanLib,
-    montant: amt,
-    event_id: eventId || '*',
-    date: new Date().toISOString(),
-  };
-  state.expenses.unshift(exp);
-  saveState(state);
-  return state.expenses;
+  const evId = eventId && EVENTS.some((e) => e.id === eventId) ? eventId : '*';
+  await pool.query(
+    'INSERT INTO expenses (id, libelle, montant, event_id, date) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(3))',
+    ['exp-' + Date.now() + '-' + crypto.randomBytes(3).toString('hex'), cleanLib, amt, evId]
+  );
+  return getExpenses();
 }
 
-export function deleteExpense(expenseId) {
-  const state = loadState();
-  state.expenses = state.expenses.filter((e) => e.id !== expenseId);
-  saveState(state);
-  return state.expenses;
+export async function deleteExpense(expenseId) {
+  await pool.query('DELETE FROM expenses WHERE id = ?', [String(expenseId || '')]);
+  return getExpenses();
 }
 
-export function updateTransactionFeeRate(pct) {
-  const state = loadState();
-  state.frais_taux_pct = Math.max(0, Math.min(25, Number(pct) || 0));
-  saveState(state);
-  return state.frais_taux_pct;
+export async function updateTransactionFeeRate(pct) {
+  const val = Math.max(0, Math.min(25, Number(pct) || 0));
+  await setSetting('frais_taux_pct', val);
+  return val;
 }
 
 // ── Configuration des transferts de billets par l'administrateur ──
-export function getTransferConfig() {
-  const state = loadState();
-  return state.transfer_config || { enabled: true, maxTransfersPerTicket: 1, maxTransfersPerUser: 5 };
+export async function getTransferConfig() {
+  const cfg = await getSetting('transfer_config', DEFAULT_TRANSFER_CONFIG);
+  return { ...DEFAULT_TRANSFER_CONFIG, ...(cfg || {}) };
 }
 
-export function updateTransferConfig({ enabled, maxTransfersPerTicket, maxTransfersPerUser }) {
-  const state = loadState();
-  const cur = state.transfer_config || { enabled: true, maxTransfersPerTicket: 1, maxTransfersPerUser: 5 };
-  state.transfer_config = {
+export async function updateTransferConfig({ enabled, maxTransfersPerTicket, maxTransfersPerUser }) {
+  const cur = await getTransferConfig();
+  const next = {
     enabled: typeof enabled === 'boolean' ? enabled : cur.enabled,
     maxTransfersPerTicket: maxTransfersPerTicket !== undefined
       ? Math.max(0, Math.min(10, Math.floor(Number(maxTransfersPerTicket) || 0)))
@@ -469,6 +496,6 @@ export function updateTransferConfig({ enabled, maxTransfersPerTicket, maxTransf
       ? Math.max(0, Math.min(50, Math.floor(Number(maxTransfersPerUser) || 0)))
       : cur.maxTransfersPerUser,
   };
-  saveState(state);
-  return state.transfer_config;
+  await setSetting('transfer_config', next);
+  return next;
 }

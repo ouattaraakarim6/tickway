@@ -4,3 +4,11 @@ data/
 .DS_Store
 .vscode/
 scratch/
+playwright-report/
+test-results/
+tmp/
+stderr.log
+.env.*
+!.env.example
+public/.htaccess
+public/.htaccess.bak

@@ -1,197 +1,263 @@
-// src/db/init.js — Crée et migre de façon additive les tables TickWay + Supabase (idempotent et réversible)
+// src/db/init.js — Crée la base et les tables TickWay (MySQL 8 / MariaDB 10.5+), idempotent.
 import 'dotenv/config';
-import pool from './pool.js';
+import pool, { createServerConnection, getDatabaseName } from './pool.js';
+import { EVENTS } from '../services/events.js';
+import { assertSecretsConfigured } from '../services/secrets.js';
 
-export const INIT_SQL = `
-CREATE TABLE IF NOT EXISTS users (
-  id             TEXT PRIMARY KEY,
-  supabase_id    UUID UNIQUE,
-  prenom         TEXT        NOT NULL,
-  nom            TEXT        NOT NULL,
-  email          TEXT        NOT NULL UNIQUE,
-  telephone      TEXT        NOT NULL DEFAULT '',
-  password_salt  TEXT        NOT NULL,
-  password_hash  TEXT        NOT NULL,
-  email_verified BOOLEAN     NOT NULL DEFAULT false,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-ALTER TABLE users ADD COLUMN IF NOT EXISTS supabase_id UUID;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_users_supabase_id ON users (supabase_id) WHERE supabase_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_users_email ON users (LOWER(email));
+const TABLE_OPTS = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 
-CREATE TABLE IF NOT EXISTS profiles (
-  id             UUID PRIMARY KEY,
-  legacy_user_id TEXT UNIQUE,
-  prenom         TEXT        NOT NULL,
-  nom            TEXT        NOT NULL,
-  email          TEXT        NOT NULL UNIQUE,
-  telephone      TEXT        NOT NULL DEFAULT '',
-  email_verified BOOLEAN     NOT NULL DEFAULT false,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles (LOWER(email));
-CREATE INDEX IF NOT EXISTS idx_profiles_legacy_user_id ON profiles (legacy_user_id) WHERE legacy_user_id IS NOT NULL;
+export const SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS reservations (
+    reference          VARCHAR(32)  NOT NULL PRIMARY KEY,
+    commande_id        VARCHAR(32)  NULL,
+    user_id            VARCHAR(64)  NULL,
+    prenom             VARCHAR(100) NOT NULL,
+    nom                VARCHAR(150) NOT NULL,
+    telephone          VARCHAR(40)  NOT NULL,
+    email              VARCHAR(255) NOT NULL,
+    localite           VARCHAR(150) NOT NULL DEFAULT 'Localité non renseignée',
+    categorie          VARCHAR(100) NOT NULL DEFAULT 'Standard Navette',
+    event_id           VARCHAR(32)  NOT NULL,
+    event_nom          VARCHAR(255) NOT NULL,
+    event_date         VARCHAR(100) NOT NULL,
+    zone               VARCHAR(100) NOT NULL,
+    point_relais       VARCHAR(255) NOT NULL,
+    montant            INT          NOT NULL,
+    frais_transaction  INT          NOT NULL DEFAULT 0,
+    mode_paiement      VARCHAR(100) NOT NULL,
+    quantite           INT          NOT NULL DEFAULT 1,
+    statut             VARCHAR(20)  NOT NULL DEFAULT 'valide',
+    qr_text            TEXT         NULL,
+    guest_access_hash  CHAR(64)     NULL,
+    transfer_count     INT          NOT NULL DEFAULT 0,
+    transferred_from   VARCHAR(32)  NULL,
+    transferred_to     VARCHAR(32)  NULL,
+    transferred_at     DATETIME(3)  NULL,
+    cree_le            DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    utilise_le         DATETIME(3)  NULL,
+    agent_id           VARCHAR(64)  NULL,
+    equipe_id          VARCHAR(64)  NULL,
+    equipe_nom         VARCHAR(150) NULL,
+    CONSTRAINT chk_reservations_quantite CHECK (quantite BETWEEN 1 AND 5),
+    CONSTRAINT chk_reservations_statut CHECK (statut IN ('valide', 'en_attente', 'utilise', 'annule', 'transfere')),
+    INDEX idx_reservations_statut (statut),
+    INDEX idx_reservations_email (email),
+    INDEX idx_reservations_user_id (user_id),
+    INDEX idx_reservations_event_id (event_id),
+    INDEX idx_reservations_commande_id (commande_id),
+    INDEX idx_reservations_guest_access (guest_access_hash),
+    INDEX idx_reservations_cree_le (cree_le)
+  ) ${TABLE_OPTS}`,
 
-CREATE TABLE IF NOT EXISTS user_sessions (
-  token_hash TEXT PRIMARY KEY,
-  user_id    TEXT        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_user_sessions_user_id ON user_sessions (user_id);
+  `CREATE TABLE IF NOT EXISTS payment_transactions (
+    commande_id          VARCHAR(32)  NOT NULL PRIMARY KEY,
+    provider             VARCHAR(32)  NOT NULL DEFAULT 'paysecurehub',
+    code_paiement        VARCHAR(64)  NOT NULL,
+    provider_token       TEXT         NULL,
+    payment_url          TEXT         NULL,
+    transaction_ref      VARCHAR(128) NULL,
+    pm_id                VARCHAR(64)  NULL,
+    provider_service     VARCHAR(100) NULL,
+    amount               INT          NOT NULL,
+    fees                 INT          NOT NULL DEFAULT 0,
+    currency             VARCHAR(8)   NOT NULL DEFAULT 'XOF',
+    statut               VARCHAR(20)  NOT NULL DEFAULT 'en_attente',
+    email_sent           TINYINT(1)   NOT NULL DEFAULT 0,
+    access_token_enc     TEXT         NULL,
+    last_webhook_payload LONGTEXT     NULL,
+    last_status_payload  LONGTEXT     NULL,
+    paid_at              DATETIME(3)  NULL,
+    created_at           DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at           DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    UNIQUE KEY uq_payment_code (code_paiement),
+    CONSTRAINT chk_payment_statut CHECK (statut IN ('en_attente', 'paye', 'echoue', 'annule')),
+    INDEX idx_payment_tx_statut (statut)
+  ) ${TABLE_OPTS}`,
 
-CREATE TABLE IF NOT EXISTS user_tokens (
-  id         TEXT PRIMARY KEY,
-  user_id    TEXT,
-  email      TEXT        NOT NULL,
-  purpose    TEXT        NOT NULL CHECK (purpose IN ('verify_email', 'reset_password', 'claim_tickets')),
-  code_hash  TEXT        NOT NULL,
-  token_hash TEXT        NOT NULL,
-  attempts   INTEGER     NOT NULL DEFAULT 0,
-  used       BOOLEAN     NOT NULL DEFAULT false,
-  expires_at TIMESTAMPTZ NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_user_tokens_email_purpose ON user_tokens (LOWER(email), purpose);
+  `CREATE TABLE IF NOT EXISTS ticket_transfers (
+    id                      VARCHAR(64)  NOT NULL PRIMARY KEY,
+    old_reference           VARCHAR(32)  NOT NULL,
+    new_reference           VARCHAR(32)  NOT NULL,
+    commande_id             VARCHAR(32)  NULL,
+    event_id                VARCHAR(32)  NOT NULL,
+    event_nom               VARCHAR(255) NOT NULL,
+    event_date              VARCHAR(100) NOT NULL,
+    categorie               VARCHAR(100) NOT NULL DEFAULT 'Standard Navette',
+    from_user_id            VARCHAR(64)  NOT NULL,
+    from_name               VARCHAR(255) NOT NULL,
+    from_email              VARCHAR(255) NOT NULL,
+    to_user_id              VARCHAR(64)  NULL,
+    to_name                 VARCHAR(255) NULL,
+    to_email                VARCHAR(255) NOT NULL,
+    access_token_hash       CHAR(64)     NULL,
+    pending_recipient_claim TINYINT(1)   NOT NULL DEFAULT 0,
+    statut                  VARCHAR(20)  NOT NULL DEFAULT 'complete',
+    created_at              DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    claimed_at              DATETIME(3)  NULL,
+    UNIQUE KEY uq_transfers_new_ref (new_reference),
+    CONSTRAINT chk_transfers_statut CHECK (statut IN ('complete', 'en_attente_compte', 'reclame', 'annule')),
+    INDEX idx_ticket_transfers_old_ref (old_reference),
+    INDEX idx_ticket_transfers_created (created_at)
+  ) ${TABLE_OPTS}`,
 
-CREATE TABLE IF NOT EXISTS password_reset_grants (
-  grant_hash                TEXT PRIMARY KEY,
-  supabase_user_id          UUID        NOT NULL,
-  email                     TEXT        NOT NULL,
-  supabase_access_token_enc TEXT        NOT NULL,
-  used                      BOOLEAN     NOT NULL DEFAULT false,
-  expires_at                TIMESTAMPTZ NOT NULL,
-  created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_reset_grants_email ON password_reset_grants (LOWER(email));
+  `CREATE TABLE IF NOT EXISTS equipes (
+    id        VARCHAR(64)  NOT NULL PRIMARY KEY,
+    nom       VARCHAR(150) NOT NULL,
+    cle_hash  CHAR(64)     NOT NULL,
+    cle_hint  VARCHAR(40)  NOT NULL,
+    event_ids LONGTEXT     NOT NULL,
+    actif     TINYINT(1)   NOT NULL DEFAULT 1,
+    cree_le   DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    UNIQUE KEY uq_equipes_cle_hash (cle_hash)
+  ) ${TABLE_OPTS}`,
 
-CREATE TABLE IF NOT EXISTS auth_rate_limits (
-  rate_key     TEXT PRIMARY KEY,
-  attempts     INTEGER     NOT NULL DEFAULT 0,
-  window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
-  locked_until TIMESTAMPTZ,
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+  `CREATE TABLE IF NOT EXISTS scans_log (
+    id         VARCHAR(64)  NOT NULL PRIMARY KEY,
+    reference  VARCHAR(64)  NOT NULL,
+    passager   VARCHAR(255) NOT NULL DEFAULT '—',
+    event_id   VARCHAR(32)  NULL,
+    event_nom  VARCHAR(255) NOT NULL DEFAULT '—',
+    resultat   VARCHAR(20)  NOT NULL,
+    raison     VARCHAR(255) NOT NULL DEFAULT '',
+    agent_id   VARCHAR(64)  NOT NULL,
+    equipe_id  VARCHAR(64)  NOT NULL,
+    equipe_nom VARCHAR(150) NOT NULL,
+    scanne_le  DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    INDEX idx_scans_equipe_date (equipe_id, scanne_le),
+    INDEX idx_scans_date (scanne_le)
+  ) ${TABLE_OPTS}`,
 
-CREATE TABLE IF NOT EXISTS reservations (
-  reference          TEXT PRIMARY KEY,
-  commande_id        TEXT,
-  user_id            TEXT,
-  prenom             TEXT        NOT NULL,
-  nom                TEXT        NOT NULL,
-  telephone          TEXT        NOT NULL,
-  email              TEXT        NOT NULL,
-  localite           TEXT        NOT NULL DEFAULT 'Localité non renseignée',
-  categorie          TEXT        NOT NULL DEFAULT 'Standard Navette',
-  event_id           TEXT        NOT NULL,
-  event_nom          TEXT        NOT NULL,
-  event_date         TEXT        NOT NULL,
-  zone               TEXT        NOT NULL,
-  point_relais       TEXT        NOT NULL,
-  montant            INTEGER     NOT NULL,
-  frais_transaction  INTEGER     NOT NULL DEFAULT 0,
-  mode_paiement      TEXT        NOT NULL,
-  quantite           INTEGER     NOT NULL DEFAULT 1 CHECK (quantite >= 1 AND quantite <= 5),
-  statut             TEXT        NOT NULL DEFAULT 'valide',
-  qr_text            TEXT,
-  guest_access_hash  TEXT,
-  transfer_count     INTEGER     NOT NULL DEFAULT 0,
-  transferred_from   TEXT,
-  transferred_to     TEXT,
-  transferred_at     TIMESTAMPTZ,
-  cree_le            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  utilise_le         TIMESTAMPTZ,
-  agent_id           TEXT,
-  equipe_id          TEXT,
-  equipe_nom         TEXT
-);
+  `CREATE TABLE IF NOT EXISTS event_capacities (
+    event_id VARCHAR(32) NOT NULL PRIMARY KEY,
+    capacite INT         NOT NULL DEFAULT 500
+  ) ${TABLE_OPTS}`,
 
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS quantite INTEGER NOT NULL DEFAULT 1;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS commande_id TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS user_id TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS localite TEXT NOT NULL DEFAULT 'Localité non renseignée';
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS categorie TEXT NOT NULL DEFAULT 'Standard Navette';
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS frais_transaction INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS qr_text TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS guest_access_hash TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS transfer_count INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS transferred_from TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS transferred_to TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS transferred_at TIMESTAMPTZ;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS agent_id TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS equipe_id TEXT;
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS equipe_nom TEXT;
+  `CREATE TABLE IF NOT EXISTS expenses (
+    id       VARCHAR(64)  NOT NULL PRIMARY KEY,
+    libelle  VARCHAR(255) NOT NULL,
+    montant  INT          NOT NULL,
+    event_id VARCHAR(32)  NOT NULL DEFAULT '*',
+    date     DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    INDEX idx_expenses_date (date)
+  ) ${TABLE_OPTS}`,
 
-ALTER TABLE reservations DROP CONSTRAINT IF EXISTS reservations_statut_check;
-ALTER TABLE reservations ADD CONSTRAINT reservations_statut_check
-  CHECK (statut IN ('valide', 'en_attente', 'utilise', 'annule', 'transfere'));
+  `CREATE TABLE IF NOT EXISTS platform_settings (
+    cle    VARCHAR(64) NOT NULL PRIMARY KEY,
+    valeur LONGTEXT    NOT NULL
+  ) ${TABLE_OPTS}`,
 
-CREATE INDEX IF NOT EXISTS idx_reservations_statut      ON reservations (statut);
-CREATE INDEX IF NOT EXISTS idx_reservations_email       ON reservations (LOWER(email));
-CREATE INDEX IF NOT EXISTS idx_reservations_user_id     ON reservations (user_id);
-CREATE INDEX IF NOT EXISTS idx_reservations_event_id    ON reservations (event_id);
-CREATE INDEX IF NOT EXISTS idx_reservations_localite    ON reservations (localite);
-CREATE INDEX IF NOT EXISTS idx_reservations_commande_id ON reservations (commande_id);
+  // Sessions persistées : survivent aux redémarrages / multi-processus de Passenger (o2switch)
+  `CREATE TABLE IF NOT EXISTS admin_sessions (
+    token_hash     CHAR(64)    NOT NULL PRIMARY KEY,
+    kind           VARCHAR(10) NOT NULL,
+    equipe_id      VARCHAR(64) NULL,
+    agent_id       VARCHAR(64) NULL,
+    ip             VARCHAR(64) NULL,
+    created_at     DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    last_active_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    CONSTRAINT chk_sessions_kind CHECK (kind IN ('founder', 'team')),
+    INDEX idx_sessions_equipe (equipe_id),
+    INDEX idx_sessions_activity (last_active_at)
+  ) ${TABLE_OPTS}`,
 
-CREATE TABLE IF NOT EXISTS ticket_transfers (
-  id                      TEXT PRIMARY KEY,
-  old_reference           TEXT        NOT NULL,
-  new_reference           TEXT        NOT NULL UNIQUE,
-  commande_id             TEXT,
-  event_id                TEXT        NOT NULL,
-  event_nom               TEXT        NOT NULL,
-  event_date              TEXT        NOT NULL,
-  categorie               TEXT        NOT NULL DEFAULT 'Standard Navette',
-  from_user_id            TEXT        NOT NULL,
-  from_name               TEXT        NOT NULL,
-  from_email              TEXT        NOT NULL,
-  to_user_id              TEXT,
-  to_name                 TEXT,
-  to_email                TEXT        NOT NULL,
-  access_token_hash       TEXT,
-  pending_recipient_claim BOOLEAN     NOT NULL DEFAULT false,
-  statut                  TEXT        NOT NULL DEFAULT 'complete' CHECK (statut IN ('complete', 'en_attente_compte', 'reclame', 'annule')),
-  created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-  claimed_at              TIMESTAMPTZ
-);
-CREATE INDEX IF NOT EXISTS idx_ticket_transfers_old_ref   ON ticket_transfers (old_reference);
-CREATE INDEX IF NOT EXISTS idx_ticket_transfers_new_ref   ON ticket_transfers (new_reference);
-CREATE INDEX IF NOT EXISTS idx_ticket_transfers_from_user ON ticket_transfers (from_user_id);
-CREATE INDEX IF NOT EXISTS idx_ticket_transfers_to_email  ON ticket_transfers (LOWER(to_email));
+  `CREATE TABLE IF NOT EXISTS login_attempts (
+    bucket       VARCHAR(128) NOT NULL PRIMARY KEY,
+    count        INT          NOT NULL DEFAULT 0,
+    locked_until DATETIME(3)  NULL,
+    updated_at   DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+  ) ${TABLE_OPTS}`,
+];
 
-CREATE TABLE IF NOT EXISTS payment_transactions (
-  commande_id          TEXT        PRIMARY KEY,
-  provider             TEXT        NOT NULL DEFAULT 'paysecurehub',
-  code_paiement        TEXT        NOT NULL UNIQUE,
-  provider_token       TEXT,
-  payment_url          TEXT,
-  transaction_ref      TEXT,
-  pm_id                TEXT,
-  provider_service     TEXT,
-  amount               INTEGER     NOT NULL,
-  fees                 INTEGER     NOT NULL DEFAULT 0,
-  currency             TEXT        NOT NULL DEFAULT 'XOF',
-  statut               TEXT        NOT NULL DEFAULT 'en_attente' CHECK (statut IN ('en_attente', 'paye', 'echoue', 'annule')),
-  email_sent           BOOLEAN     NOT NULL DEFAULT false,
-  access_token_enc     TEXT,
-  last_webhook_payload JSONB,
-  last_status_payload  JSONB,
-  paid_at              TIMESTAMPTZ,
-  created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_payment_tx_statut ON payment_transactions (statut);
-`;
+async function seedDefaults() {
+  // Lazy import pour éviter une dépendance circulaire avec platformStore
+  const { hashKeySha256, maskKey, hashPasswordPbkdf2 } = await import('../services/platformStore.js');
 
+  // 1. Mot de passe fondateur — lu uniquement depuis l'environnement (rien dans le code) :
+  //    - FOUNDER_AUTH_SALT + FOUNDER_AUTH_HASH : hash PBKDF2 existant (conserve le mot de passe fondateur actuel)
+  //    - ou FOUNDER_PASSWORD : nouveau mot de passe en clair, haché à l'initialisation
+  //    Appliqué seulement si aucun mot de passe n'est encore enregistré (un changement fait depuis le dashboard est conservé).
+  const founderSalt = String(process.env.FOUNDER_AUTH_SALT || '').trim();
+  const founderHash = String(process.env.FOUNDER_AUTH_HASH || '').trim();
+  const founderPwd = String(process.env.FOUNDER_PASSWORD || '').trim();
+  let founderAuth = null;
+  if (/^[0-9a-f]{16,}$/i.test(founderSalt) && /^[0-9a-f]{128}$/i.test(founderHash)) {
+    founderAuth = { salt: founderSalt, hash: founderHash.toLowerCase(), updatedAt: new Date().toISOString() };
+  } else if (founderPwd.length >= 8) {
+    const { salt, hash } = hashPasswordPbkdf2(founderPwd);
+    founderAuth = { salt, hash, updatedAt: new Date().toISOString() };
+  }
+  if (founderAuth) {
+    await pool.query(
+      `INSERT IGNORE INTO platform_settings (cle, valeur) VALUES ('founder', ?)`,
+      [JSON.stringify(founderAuth)]
+    );
+  }
+
+  // 2. Paramètres par défaut
+  await pool.query(`INSERT IGNORE INTO platform_settings (cle, valeur) VALUES ('frais_taux_pct', '0')`);
+  await pool.query(
+    `INSERT IGNORE INTO platform_settings (cle, valeur) VALUES ('transfer_config', ?)`,
+    [JSON.stringify({ enabled: true, maxTransfersPerTicket: 1, maxTransfersPerUser: 5 })]
+  );
+
+  // 3. Capacités par événement
+  for (const ev of EVENTS) {
+    await pool.query(`INSERT IGNORE INTO event_capacities (event_id, capacite) VALUES (?, 500)`, [ev.id]);
+  }
+
+  // 4. Équipe terrain principale (uniquement si aucune équipe n'existe)
+  const { rows } = await pool.query('SELECT COUNT(*) AS cnt FROM equipes');
+  if (Number(rows[0].cnt) === 0) {
+    const teamKey = String(process.env.VALIDATE_API_KEY || '').trim();
+    if (teamKey.length >= 16) {
+      await pool.query(
+        `INSERT IGNORE INTO equipes (id, nom, cle_hash, cle_hint, event_ids, actif) VALUES (?, ?, ?, ?, ?, 1)`,
+        ['team-principale', 'Équipe Terrain Principale', hashKeySha256(teamKey), maskKey(teamKey), JSON.stringify(['*'])]
+      );
+    } else {
+      console.warn('[DB] Aucune équipe créée : définissez VALIDATE_API_KEY (16+ caractères) ou créez une équipe depuis le dashboard fondateur.');
+    }
+  }
+
+  // 5. Avertissements de configuration sensibles
+  const { rows: fRows } = await pool.query(`SELECT valeur FROM platform_settings WHERE cle = 'founder'`);
+  if (!fRows.length) {
+    console.warn('[SÉCURITÉ] Mot de passe fondateur non configuré : définissez FOUNDER_AUTH_SALT/FOUNDER_AUTH_HASH (ou FOUNDER_PASSWORD) puis redémarrez.');
+  }
+}
+
+/** Crée la base (si les droits le permettent), les tables et les données par défaut. */
+export async function initDb() {
+  assertSecretsConfigured();
+  const dbName = getDatabaseName();
+  try {
+    const conn = await createServerConnection();
+    try {
+      await conn.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+    } finally {
+      await conn.end();
+    }
+  } catch (err) {
+    // Sur un hébergement mutualisé (cPanel/o2switch), la base est créée depuis le panneau : on continue.
+    if (['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT'].includes(err.code)) {
+      throw new Error('Base MySQL injoignable : démarrez MySQL dans Laragon (ou vérifiez DATABASE_URL).');
+    }
+  }
+
+  for (const stmt of SCHEMA) {
+    await pool.query(stmt);
+  }
+  await seedDefaults();
+}
+
+// Exécution directe : npm run db:init
 if (process.argv[1] && process.argv[1].endsWith('init.js')) {
   try {
-    await pool.query(INIT_SQL);
-    console.log('✅  Tables TickWay (reservations, payment_transactions, users, profiles, user_sessions, user_tokens, password_reset_grants, auth_rate_limits, ticket_transfers) prêtes.');
+    await initDb();
+    console.log(`✅  Base MySQL "${getDatabaseName()}" prête (reservations, payment_transactions, ticket_transfers, equipes, scans_log, event_capacities, expenses, platform_settings, admin_sessions, login_attempts).`);
   } catch (err) {
     console.error("❌  Erreur lors de l'initialisation :", err.message);
-    process.exit(1);
+    process.exitCode = 1;
   } finally {
     await pool.end();
   }

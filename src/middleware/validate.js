@@ -30,8 +30,9 @@ export function validateReservation(body) {
     errors.quantite = 'Vous pouvez réserver entre 1 et 5 tickets maximum.';
   }
 
-  if (!prenom || prenom.length < 2) errors.prenom = 'Prénom requis (2 caractères minimum).';
-  if (!nom || nom.length < 2) errors.nom = 'Nom requis (2 caractères minimum).';
+  if (!prenom || prenom.length < 2 || prenom.length > 80) errors.prenom = 'Prénom requis (2 à 80 caractères).';
+  if (!nom || nom.length < 2 || nom.length > 80) errors.nom = 'Nom requis (2 à 80 caractères).';
+  if (email.length > 254) errors.email = 'Adresse e-mail trop longue.';
   if (!TEL_RE.test(telephone)) errors.telephone = 'Numéro de téléphone ivoirien invalide.';
   if (!EMAIL_RE.test(email)) errors.email = 'Adresse e-mail invalide.';
   if (eventId === undefined || eventId === null) errors.eventId = 'Événement requis.';
@@ -52,8 +53,8 @@ export function validateReservation(body) {
       pointRelaisIndex: Number(pointRelaisIndex),
       modePaiement,
       quantite,
-      localite,
-      categorie,
+      localite: localite.slice(0, 150),
+      categorie: categorie.slice(0, 100),
     },
   };
 }

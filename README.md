@@ -1,138 +1,79 @@
 # 🚐 TickWay — Backend & Intégration Front-end
 
-Système backend de réservation et validation de billets de transport pour les concerts d'Abidjan.
-
----
-
-## 📋 Table des matières
-
-1. [Architecture & Stack](#-architecture--stack)
-2. [Structure du projet](#-structure-du-projet)
-3. [Installation & Configuration](#-installation--configuration)
-4. [Base de données PostgreSQL](#-base-de-données-postgresql)
-5. [Endpoints API](#-endpoints-api)
-6. [Sécurité & Atomicité](#-sécurité--atomicité)
-7. [Front-end connecté](#-front-end-connecté)
+Système de réservation et de validation de billets de navette pour les concerts d'Abidjan.
 
 ---
 
 ## 🛠 Architecture & Stack
 
-- **Runtime** : Node.js (ES Modules)
-- **Framework HTTP** : Express
-- **Base de données** : PostgreSQL (compatible Supabase, Neon, Railway, Docker, local)
-- **QR Code** : `qrcode` (PNG haute résolution + Data URL pour le front et les e-mails)
-- **E-mails transactionnels** : **EmailJS** (API REST officielle, sans dépendance lourde)
-- **Sécurité** : `helmet`, `cors`, `express-rate-limit`, `crypto.randomBytes`
-
----
+- **Frontend** : HTML / CSS / JavaScript vanilla, page unique `public/index.html` servie par Express
+- **Backend** : Node.js (≥ 18, ES Modules) + Express
+- **Base de données** : **MySQL 8** / MariaDB 10.5+ via `mysql2` (Laragon en local, o2switch en production) — unique source de vérité
+- **Paiement** : PaySecureHub (page hébergée + IPN serveur-à-serveur, statut toujours re-vérifié côté serveur)
+- **QR Code** : `qrcode` ; **E-mails** : SMTP de la messagerie o2switch via `nodemailer`
+- **Sécurité** : `helmet`, `cors`, `express-rate-limit`, sessions et anti-force-brute persistés en base
+- **Tests** : Playwright (`tests/e2e/`) avec un faux PaySecureHub local
 
 ## 📁 Structure du projet
 
 ```text
-tickway-backend/
-├── .env.example              # Gabarit des variables d'environnement
-├── .gitignore
-├── package.json              # Dépendances et scripts
-├── README.md
+tickway/
+├── app.cjs                  # Point d'entrée Passenger (o2switch « Setup Node.js App »)
+├── .env.example             # Gabarit des variables d'environnement (aucune valeur secrète)
+├── playwright.config.js     # Configuration des tests de bout en bout
 ├── src/
-│   ├── server.js             # Serveur Express, rate-limits, routing et statiques
+│   ├── server.js            # Serveur Express, rate-limits, routes, gestion d'erreurs
 │   ├── db/
-│   │   ├── pool.js           # Pool PostgreSQL unique
-│   │   └── init.js           # Script idempotent de création de table et index
-│   ├── middleware/
-│   │   ├── auth.js           # Protection de /api/validate par X-Api-Key
-│   │   └── validate.js       # Validation stricte des données de réservation
-│   ├── routes/
-│   │   ├── reservations.js   # POST /api/reservations & GET /:ref/qr.png
-│   │   ├── validate.js       # POST /api/validate (atomicité PostgreSQL)
-│   │   └── resend.js         # POST /api/resend (renvoi d'email de confirmation)
-│   └── services/
-│       ├── email.js          # Template HTML/texte + envoi avec QR en CID
-│       ├── events.js         # Événements et points relais (source de vérité)
-│       ├── qr.js             # Génération QR code côté serveur
-│       └── reference.js      # Génération sécurisée TW-XXXX-XXXX
-└── public/
-    └── index.html            # Front-end complet connecté à l'API
+│   │   ├── pool.js          # Pool MySQL (mysql2) + transactions
+│   │   └── init.js          # Création idempotente de la base, des tables et des données initiales
+│   ├── middleware/          # auth.js (équipe / fondateur), validate.js (saisies)
+│   ├── routes/              # payments, reservations, validate, resend, team, founder
+│   └── services/            # platformStore (équipes, scans, fondateur…), ticketStore, secrets, email, qr…
+├── public/index.html        # Front-end complet
+└── tests/e2e/               # Tests Playwright + mock PaySecureHub
 ```
 
----
+## ⚙️ Installation locale (Laragon)
 
-## ⚙️ Installation & Configuration
+1. Démarrer **MySQL** dans Laragon (port 3306, utilisateur `root` sans mot de passe par défaut).
+2. `npm install`
+3. `cp .env.example .env` puis renseigner au minimum :
+   - `DATABASE_URL=mysql://root:@127.0.0.1:3306/tickway`
+   - `FOUNDER_AUTH_SALT` / `FOUNDER_AUTH_HASH` : hash du mot de passe fondateur existant (ou `FOUNDER_PASSWORD` pour un nouveau)
+   - `APP_SECRET`, `VALIDATE_API_KEY` : valeurs aléatoires générées avec
+     `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+4. `npm run db:init` — crée la base `tickway` et les tables (relançable sans risque).
+5. `npm run dev` puis ouvrir http://localhost:3000
+6. Tests : `npx playwright install chromium` (une fois) puis `npm run test:e2e`
 
-### 1. Prérequis
-- Node.js >= 18
-- Une instance PostgreSQL (locale ou hébergée chez Supabase, Neon, Railway)
+> 🔐 **Aucun secret n'est écrit dans le code** : mots de passe, clés équipe, clés PaySecureHub, identifiants SMTP
+> et `APP_SECRET` viennent exclusivement des variables d'environnement. Le fichier `.env` n'est jamais versionné.
 
-### 2. Installation des dépendances
-```bash
-cd /Users/karim/.gemini/antigravity/scratch/tickway-backend
-npm install
-```
+## 🗄 Base de données MySQL
 
-### 3. Variables d'environnement
-Copiez le fichier `.env.example` en `.env` et ajustez les paramètres :
+Tables (InnoDB, utf8mb4) créées par `src/db/init.js` :
 
-```bash
-cp .env.example .env
-```
+| Table | Rôle |
+|---|---|
+| `reservations` | Billets (référence `TW-XXXX-XXXX`, statut `valide` / `en_attente` / `utilise` / `annule` / `transfere`) |
+| `payment_transactions` | Commandes PaySecureHub, statut de paiement, jeton invité chiffré |
+| `ticket_transfers` | Historique des transferts de billets |
+| `equipes` | Équipes terrain (clé stockée sous forme de HMAC uniquement) |
+| `scans_log` | Journal des 1000 derniers contrôles |
+| `event_capacities`, `expenses`, `platform_settings` | Capacités, dépenses, réglages (frais, transferts, mot de passe fondateur haché PBKDF2) |
+| `admin_sessions`, `login_attempts` | Sessions fondateur / équipe (hash du jeton) et verrouillage anti-force-brute |
 
-Contenu type de `.env` :
-```env
-DATABASE_URL=postgresql://postgres:mot_de_passe@localhost:5432/tickway
-PORT=3000
-NODE_ENV=development
+## 🌍 Production (o2switch)
 
-# Clé secrète pour le scan/contrôle des billets par l'équipe terrain
-VALIDATE_API_KEY=cle_secrete_equipe_terrain_2026
-
-# Configuration EmailJS (https://dashboard.emailjs.com/)
-EMAILJS_SERVICE_ID=service_xxxxxxx
-EMAILJS_TEMPLATE_ID=template_xxxxxxx
-EMAILJS_PUBLIC_KEY=votre_cle_publique_ou_user_id
-EMAILJS_PRIVATE_KEY=votre_cle_privee
-
-# URL publique de l'application (optionnel, pour l'affichage du QR dans le mail)
-APP_URL=http://localhost:3000
-
-# Domaines autorisés pour CORS (séparés par virgules)
-CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:5500
-```
-
-### 4. Initialisation de la table PostgreSQL
-```bash
-npm run db:init
-```
-
----
-
-## 🗄 Base de données PostgreSQL
-
-La table `reservations` applique des contraintes strictes et des index de performance :
-
-```sql
-CREATE TABLE IF NOT EXISTS reservations (
-  reference     TEXT PRIMARY KEY,                     -- Ex: TW-7K9A-4B2E
-  prenom        TEXT        NOT NULL,
-  nom           TEXT        NOT NULL,
-  telephone     TEXT        NOT NULL,
-  email         TEXT        NOT NULL,
-  event_id      TEXT        NOT NULL,
-  event_nom     TEXT        NOT NULL,
-  event_date    TEXT        NOT NULL,
-  zone          TEXT        NOT NULL,
-  point_relais  TEXT        NOT NULL,
-  montant       INTEGER     NOT NULL,
-  mode_paiement TEXT        NOT NULL,
-  statut        TEXT        NOT NULL DEFAULT 'valide'
-                            CHECK (statut IN ('valide', 'utilise')),
-  cree_le       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  utilise_le    TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_reservations_statut ON reservations (statut);
-CREATE INDEX IF NOT EXISTS idx_reservations_email  ON reservations (email);
-```
+- Base : créer la base + l'utilisateur dans cPanel › *Bases de données MySQL*, puis
+  `DATABASE_URL=mysql://<user>:<mot_de_passe_encodé>@localhost:3306/<base>`
+- Dossier serveur : **`/home/<user>/tickway-plateforme`** (clone GitHub, `.env`, `app.cjs`) ; racine web du domaine : **`tickway-plateforme/public`** (jamais le dossier de l'app lui-même, pour ne pas exposer `.env`)
+- Application : cPanel › *Setup Node.js App*, racine `tickway-plateforme`, fichier de démarrage **`app.cjs`**, `NODE_ENV=production`
+- Adresse unique **https://tick-way.com** : `http://`, `www.` et `https://www.` sont redirigés en 301 (bloc `TICKWAY REDIRECTS` du `.htaccess`, installé par `deploy/install-redirects.sh`, + filet de sécurité dans Express) ; HSTS activé
+- En production, la configuration du mot de passe fondateur via l'interface est désactivée : il est défini par `FOUNDER_AUTH_SALT`/`FOUNDER_AUTH_HASH` (ou `FOUNDER_PASSWORD`).
+- Variables de production : `node deploy/push-env.mjs` génère le `.env` du serveur à partir du `.env` local (+ `.env.production` pour la base o2switch, fichier non versionné) et l'envoie en SSH.
+- Déploiement : `deploy/deploy.ps1` (depuis le PC : push GitHub + SSH) qui exécute `deploy/o2switch-deploy.sh` sur le serveur. Pas de Docker.
+- Guide pas à pas pour Claude Desktop : `deploy/PROMPT-CLAUDE-DESKTOP.md`.
 
 ---
 
@@ -252,98 +193,31 @@ CREATE INDEX IF NOT EXISTS idx_reservations_email  ON reservations (email);
 
 ## 🔒 Sécurité & Atomicité
 
-1. **Atomicité des scans simultanés** :
-   La validation s'appuie sur une requête SQL atomique :
-   ```sql
-   UPDATE reservations
-   SET statut = 'utilise', utilise_le = now()
-   WHERE reference = $1 AND statut = 'valide'
-   RETURNING *;
-   ```
-   PostgreSQL pose un verrou de ligne exclusif (`row-level exclusive lock`). Si deux agents scannent la même référence à la milliseconde près, une seule transaction modifiera `rowCount = 1` ; la seconde obtiendra `rowCount = 0` et renverra immédiatement `statut: 'deja_utilise'`.
-
-2. **Génération côté serveur de la référence** :
-   Utilise `crypto.randomBytes(8)` mappé sur un alphabet sans ambiguïté (`23456789ABCDEFGHJKLMNPQRSTUVWXYZ`), vérifié en base.
-
-3. **Protection de l'espace équipe** :
-   L'endpoint `/api/validate` exige l'en-tête `X-Api-Key` vérifié via variable d'environnement (`VALIDATE_API_KEY`).
-
-4. **Anti-abus (Rate Limiting)** :
-   - `/api/reservations` : 5 requêtes par minute par IP.
-   - `/api/validate` : 60 requêtes par minute par IP.
-
-5. **E-mails transactionnels sécurisés via EmailJS** :
-   Les e-mails sont expédiés côté serveur via l'API REST officielle d'EmailJS avec vérification de la clé privée (`accessToken`), empêchant toute falsification depuis le navigateur client.
+1. **Atomicité des scans simultanés** : `UPDATE reservations SET statut = 'utilise' … WHERE reference = ? AND statut = 'valide'`.
+   InnoDB verrouille la ligne : si plusieurs agents scannent le même billet en même temps, un seul obtient `affectedRows = 1` (VERT), les autres reçoivent `deja_utilise` (ORANGE). Vérifié par un test de 8 scans concurrents.
+2. **Paiements** : le statut « payé » est toujours re-vérifié auprès de PaySecureHub (jamais sur la seule foi du webhook), avec contrôle anti-sous-paiement et verrou `SELECT … FOR UPDATE` contre les doubles envois d'e-mail.
+3. **Secrets** : uniquement dans les variables d'environnement. Clés équipe stockées en HMAC (clé dérivée de `APP_SECRET`), mot de passe fondateur en PBKDF2 (100 000 itérations), jetons de session stockés hachés.
+4. **Authentification** : sessions persistées en base (15 min d'inactivité côté fondateur, 12 h côté équipe), verrouillage 5 min après 5 échecs, aucune vérification d'identifiant côté navigateur.
+5. **Renvoi d'e-mail** (`/api/resend`) : seuls les billets actifs de la même commande sont renvoyés, à l'adresse de la commande ; l'adresse est masquée dans la réponse.
+6. **Anti-abus** : `/api/reservations` et `/api/resend` 10 req/min/IP, validation & espaces équipe/fondateur 120 req/min/IP, corps JSON limité à 32 ko.
+7. **Injection SQL** : requêtes paramétrées uniquement, `multipleStatements` désactivé.
 
 ---
 
-## ✉️ Configuration du Template EmailJS
+## ✉️ E-mails des billets (SMTP o2switch)
 
-Dans votre tableau de bord [EmailJS](https://dashboard.emailjs.com/) :
+Les billets sont envoyés par le serveur via la messagerie o2switch (bibliothèque `nodemailer`, sans service tiers) :
+- cPanel › **Comptes de messagerie** : créer la boîte d'envoi (ex. `billets@tick-way.com`) ;
+- renseigner `SMTP_HOST` (serveur indiqué dans « Connecter les appareils »), `SMTP_PORT=465`, `SMTP_USER`, `SMTP_PASS` et éventuellement `MAIL_FROM` / `MAIL_REPLY_TO` dans le `.env` ;
+- cPanel › **Délivrabilité des e-mails** : vérifier que **SPF** et **DKIM** sont valides pour `tick-way.com` (sinon les billets risquent d'arriver en spam) ;
+- tester : `npm run mail:test -- votre@adresse.com`.
 
-### 1. Variables disponibles dans votre Template
-Le backend transmet automatiquement toutes les variables suivantes :
-
-| Variable | Description | Exemple |
-| :--- | :--- | :--- |
-| `{{to_email}}` | E-mail du passager | `awa@exemple.ci` |
-| `{{to_name}}` | Nom complet du passager | `Awa Koné` |
-| `{{reference}}` | Référence unique du billet | `TW-8M3P-9K2L` |
-| `{{event_nom}}` | Nom de l'événement | `Kiff No Beat` |
-| `{{event_date}}` | Date et heure de l'événement | `Sam. 21 novembre 2026, 19 h 00` |
-| `{{zone}}` | Zone de transport | `Abidjan Nord` |
-| `{{point_relais}}` | Point de ramassage | `Abobo, Mairie d'Abobo` |
-| `{{montant}}` | Montant formaté | `5 000 FCFA` |
-| `{{mode_paiement}}`| Moyen de paiement | `Wave` |
-| `{{qr_code_url}}` | **Lien vers l'image QR** | URL d'image insérable dans `<img src="{{qr_code_url}}" />` |
-
-### 2. Exemple de corps HTML anti-spam pour votre template EmailJS
-Dans **EmailJS > Email Templates > `template_kkd54a6`** :
-- **Subject** : `Confirmation de votre réservation TickWay ({{reference}})`
-- **From Name** : `TickWay` (cochez **Use Default Email Address**)
-- **Reply To** : Laissez **vide** (ou mettez votre propre adresse Gmail d'envoi — **ne mettez jamais** `{{email}}` ni un domaine non configuré comme `contact@tickway.ci`).
-
-Collez ce code HTML (optimisé avec un bon ratio texte/image pour passer dans la boîte principale) dans l'éditeur HTML de votre template EmailJS :
-
-```html
-<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f4f6f9; padding: 24px; color: #252a31; line-height: 1.6;">
-  <div style="max-width: 560px; margin: 0 auto; background: #ffffff; border-radius: 12px; overflow: hidden; border: 1px solid #e3e8ee;">
-    <div style="background: #0a74b8; padding: 20px 24px; color: #ffffff;">
-      <h2 style="margin: 0; font-size: 20px;">Tick<span style="color: #e0a526;">Way</span> — Confirmation de trajet</h2>
-    </div>
-    <div style="padding: 24px;">
-      <p style="font-size: 16px; margin-top: 0;">Bonjour <strong>{{to_name}}</strong>,</p>
-      <p style="color: #4a5568;">Nous vous confirmons l'enregistrement de votre place à bord de la navette dédiée TickWay pour l'événement <strong>{{event_nom}}</strong>. Vous trouverez ci-dessous le récapitulatif de votre trajet ainsi que votre code d'accès personnel.</p>
-      
-      <table style="width: 100%; border-collapse: collapse; margin: 20px 0; border: 1px solid #e3e8ee; border-radius: 8px;">
-        <tr><td style="padding: 10px 12px; color: #64748b; border-bottom: 1px solid #f1f5f9;">Référence dossier</td><td style="padding: 10px 12px; font-weight: 600; color: #0a74b8; border-bottom: 1px solid #f1f5f9;">{{reference}}</td></tr>
-        <tr><td style="padding: 10px 12px; color: #64748b; border-bottom: 1px solid #f1f5f9;">Événement</td><td style="padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #f1f5f9;">{{event_nom}}</td></tr>
-        <tr><td style="padding: 10px 12px; color: #64748b; border-bottom: 1px solid #f1f5f9;">Date et départ</td><td style="padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #f1f5f9;">{{event_date}}</td></tr>
-        <tr><td style="padding: 10px 12px; color: #64748b; border-bottom: 1px solid #f1f5f9;">Point relais</td><td style="padding: 10px 12px; font-weight: 600; border-bottom: 1px solid #f1f5f9;">{{point_relais}} ({{zone}})</td></tr>
-        <tr><td style="padding: 10px 12px; color: #64748b;"> Participation réglée</td><td style="padding: 10px 12px; font-weight: 600;">{{montant}} ({{mode_paiement}})</td></tr>
-      </table>
-
-      <div style="margin-top: 20px;">
-        {{{qr_html}}}
-      </div>
-
-      <p style="font-size: 13px; color: #64748b; margin-top: 24px; margin-bottom: 0;">Merci de vous présenter à votre point relais 15 minutes avant l'heure indiquée. Bon concert avec TickWay !</p>
-    </div>
-    <div style="background: #f8fafc; padding: 14px 24px; border-top: 1px solid #e3e8ee; font-size: 12px; color: #94a3b8; text-align: center;">
-      Cet e-mail de service fait suite à votre réservation sur TickWay · Abidjan, Côte d'Ivoire.
-    </div>
-  </div>
-</div>
-```
+Le gabarit HTML est intégré à `src/services/email.js` ; les QR codes sont générés par le serveur et joints au message (images intégrées), un lien « Afficher mes billets » permet aussi de les retrouver en ligne.
+Sans configuration SMTP (développement, tests), aucun e-mail n'est envoyé et un avertissement est journalisé.
 
 ---
 
 ## 💻 Front-end connecté
 
-Le fichier [public/index.html](file:///Users/karim/.gemini/antigravity/scratch/tickway-backend/public/index.html) (et sa copie sur votre bureau [index (2).html](file:///Users/karim/Desktop/index%20(2).html)) conserve **100% du design, des polices, du CSS et des animations** du fichier original.
-
-Les modifications portent uniquement sur :
-- Remplacement du `localStorage` (`db`, `dbSave`, `genRef`) par les appels `fetch()` vers `/api/reservations`.
-- Remplacement du QR code client par l'affichage direct du QR code renvoyé par le serveur (`qrDataUrl`).
-- Ajout de la gestion du renvoi d'email via `/api/resend`.
-- Connexion de l'Espace Équipe (`#controle`) à `/api/validate` avec mémorisation sécurisée de la clé d'API dans le navigateur de l'agent.
+`public/index.html` est servi par Express et appelle l'API (`/api/payments`, `/api/reservations`, `/api/validate`, `/api/team`, `/api/founder`, `/api/resend`).
+Le paiement passe exclusivement par PaySecureHub ; la création directe via `POST /api/reservations` est refusée (403).

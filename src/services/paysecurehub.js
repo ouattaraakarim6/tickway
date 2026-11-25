@@ -1,6 +1,7 @@
 // src/services/paysecurehub.js — Client serveur PaySecureHub / PAYHUB (BMI-CI)
 // Documentation officielle : https://docs.paysecurehub.com
 import crypto from 'node:crypto';
+import { deriveKey } from './secrets.js';
 
 const DEFAULT_BASE_URL = 'https://rest-airtime.paysecurehub.com';
 
@@ -293,12 +294,7 @@ export async function listPaySecureHubProviders() {
 
 // Chiffrement éphémère AES-256-GCM du guest accessToken le temps d'attendre le webhook IPN
 function getTempCipherKey() {
-  const seed = process.env.TICKWAY_RESET_SECRET
-    || process.env.PAYSECUREHUB_API_KEY
-    || process.env.FOUNDER_PASSWORD
-    || process.env.VALIDATE_API_KEY
-    || 'tickway-dev-ephemeral-cipher-key';
-  return crypto.createHash('sha256').update(`TICKWAY_GUEST_ENC_V1:${seed}`).digest();
+  return deriveKey('guest-token-enc');
 }
 
 export function encryptAccessToken(plainToken) {

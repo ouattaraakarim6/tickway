@@ -4963,171 +4963,6 @@
       }
     };
 
-    /* Configuration EmailJS */
-    const EMAILJS_CFG = {
-      serviceId: 'service_zkdvg0w',
-      templateId: 'template_kkd54a6',
-      publicKey: 'yTONDvVM6zOER6PEC',
-      // Adresse e-mail à laquelle les clients peuvent répondre (la vôtre). Un « Reply-To » valide
-      // rassure les filtres anti-spam. Exemple : 'contact@votredomaine.ci'
-      replyTo: ''
-    };
-
-    function genLocalRef() {
-      const AL = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ', a = new Uint8Array(8);
-      crypto.getRandomValues(a);
-      let s = '';
-      a.forEach(b => s += AL[b % 32]);
-      return 'TW-' + s.slice(0, 4) + '-' + s.slice(4, 8);
-    }
-
-    // Construit un QR code compact en tableau HTML (cases noires/blanches), sans aucune image.
-    function qrHtmlTable(text) {
-      try {
-        if (!window.QRCode) return '';
-        const q = new QRCode(document.createElement('div'), { text, width: 64, height: 64, correctLevel: QRCode.CorrectLevel.L });
-        const m = q._oQRCode; if (!m) return '';
-        const n = m.getModuleCount(), px = n > 29 ? 4 : 6, W = n * px;
-        let cols = '<colgroup>';
-        for (let i = 0; i < n; i++) cols += `<col width=${px}>`;
-        cols += '</colgroup>';
-        let rows = '';
-        for (let r = 0; r < n; r++) {
-          let cells = '', c = 0;
-          while (c < n) {
-            const d = m.isDark(r, c); let k = 1;
-            while (c + k < n && m.isDark(r, c + k) === d) k++;
-            cells += `<td${k > 1 ? ' colspan=' + k : ''}${d ? ' bgcolor=#000' : ''}></td>`;
-            c += k;
-          }
-          rows += `<tr height=${px}>${cells}</tr>`;
-        }
-        return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${W}" align="center" bgcolor="#ffffff" style="border-collapse:collapse;table-layout:fixed;margin:0 auto;font-size:0;line-height:0;background:#ffffff;border:10px solid #ffffff">${cols}${rows}</table>`;
-      } catch (err) { return ''; }
-    }
-
-    function buildTicketsEmailHtml(tickets, passagerNom, meta, useImgOnly = false) {
-      const total = tickets.length;
-      const refs = tickets.map(t => t.reference || t.code || t);
-      const pageUrl = buildTicketsPageUrl(refs, { ...meta, nom: passagerNom });
-      // EmailJS limite l'ensemble des variables à 50 Ko : les QR codes « tableau HTML » (visibles même quand
-      // la messagerie bloque les images) sont utilisés tant que le budget le permet, les autres passent en image.
-      const TABLE_BUDGET = 34000;
-      let used = 0;
-
-      const blocks = tickets.map((t, idx) => {
-        const ref = t.reference || t.code || t;
-        const num = idx + 1;
-        const title = total > 1
-          ? `Ticket ${num}/${total} — ${idx === 0 ? passagerNom + ' (Titulaire)' : 'Passager ' + num}`
-          : `Ticket — ${passagerNom}`;
-        const qrContent = t.qrText || buildTicketQrText(ref, { ...meta, num, qty: total, nom: passagerNom });
-        const qrImgUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(qrContent);
-        const imgTag = `<img src="${qrImgUrl}" alt="QR Code ${ref}" width="165" height="165" style="display:block;margin:0 auto;background:#fff;padding:8px;border-radius:6px">`;
-        let qrVisual = imgTag;
-        if (!useImgOnly) {
-          const tbl = qrHtmlTable(qrContent);
-          if (tbl && used + tbl.length <= TABLE_BUDGET) { qrVisual = tbl; used += tbl.length; }
-        }
-        return `<div style="margin:${idx === 0 ? '0' : '14px'} 0 0;padding:16px;background:#ffffff;border:1.5px dashed #cbd5e1;border-radius:10px;text-align:center">` +
-          `<div style="font-size:13px;font-weight:700;color:#0a74b8;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">${title}</div>` +
-          qrVisual +
-          `<div style="margin:10px 0 2px;font-size:20px;font-weight:800;letter-spacing:1.5px;color:#252a31">${ref}</div>` +
-          `<div style="font-size:12px;color:#64748b">Billet individuel à usage unique — présentez ce QR code à la montée</div>` +
-          `</div>`;
-      }).join('');
-
-      const button = `<div style="text-align:center;margin:0 0 16px">` +
-        `<a href="${pageUrl}" target="_blank" style="display:inline-block;padding:12px 22px;background:#0a74b8;color:#ffffff;font-weight:700;font-size:15px;text-decoration:none;border-radius:8px">${total > 1 ? 'Afficher et télécharger mes tickets' : 'Afficher et télécharger mon ticket'}</a>` +
-        `<div style="font-size:12px;color:#64748b;margin-top:6px">Le QR code ne s’affiche pas ? Ouvrez ce lien : vos tickets s’affichent et se téléchargent en un clic.</div>` +
-        `</div>`;
-
-      return button + blocks;
-    }
-
-    async function sendEmailJSDirect(d, tickets, e, r, pm, extra = {}) {
-      const list = Array.isArray(tickets) ? tickets : [{ reference: tickets }];
-      const refs = list.map(t => t.reference || t.code || t);
-      const firstRef = refs[0];
-      const allRefsStr = refs.join(', ');
-      const totalQty = list.length;
-      const totalMontant = fmt(e.p * totalQty);
-      const passagerNom = (d.pr + ' ' + d.nm).trim();
-      const zIdx = Math.max(0, RL.findIndex(x => x.n === r.z));
-      const ptIdx = Math.max(0, (RL[zIdx] ? RL[zIdx].p : []).findIndex(([c, l]) => c === r.c && l === r.l));
-      const meta = { evId: e.id, z: zIdx, pt: ptIdx, k: extra.accessToken || '' };
-      const firstQrContent = (list[0] && list[0].qrText) || buildTicketQrText(firstRef, { ...meta, num: 1, qty: totalQty, nom: passagerNom });
-      const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=10&data=' + encodeURIComponent(firstQrContent);
-      const dateComplete = e.d + (e.h ? ', ' + e.h : '');
-      const pointComplet = r.c + ', ' + r.l;
-
-      const buildPayload = (useImgOnly) => ({
-        service_id: EMAILJS_CFG.serviceId,
-        template_id: EMAILJS_CFG.templateId,
-        user_id: EMAILJS_CFG.publicKey,
-        template_params: {
-          email: d.ml,
-          to_email: d.ml,
-          user_email: d.ml,
-          destinataire: d.ml,
-          to_name: passagerNom,
-          name: passagerNom,
-          prenom: d.pr,
-          nom: d.nm,
-          telephone: d.tel,
-          from_name: 'TickWay',
-          reply_to: EMAILJS_CFG.replyTo || '',
-          reference: allRefsStr,
-          quantite: totalQty,
-          nb_places: totalQty,
-          places: totalQty > 1 ? `${totalQty} tickets` : '1 ticket',
-          event_nom: e.n,
-          event_name: e.n,
-          evenement: e.n,
-          event_date: dateComplete,
-          date: dateComplete,
-          zone: r.z,
-          point_relais: pointComplet,
-          lieu: pointComplet,
-          montant: `${totalMontant} (${totalQty > 1 ? totalQty + ' tickets' : '1 ticket'})`,
-          mode_paiement: pm,
-          qr_code_url: qrUrl,
-          qr_code: qrUrl,
-          qr: qrUrl,
-          qrcode: qrUrl,
-          qr_url: qrUrl,
-          qr_image: qrUrl,
-          qr_html: buildTicketsEmailHtml(list, passagerNom, meta, useImgOnly),
-          tickets_url: buildTicketsPageUrl(refs, { ...meta, nom: passagerNom }),
-          subject: totalQty > 1
-            ? `Confirmation de vos ${totalQty} billets TickWay (${firstRef})`
-            : `Confirmation de votre réservation TickWay (${firstRef})`,
-          message: `Bonjour ${passagerNom}, vos ${totalQty} place(s) à bord de la navette TickWay pour ${e.n} (${dateComplete}) au départ de ${pointComplet} (${r.z}) sont enregistrées sous : ${allRefsStr}.`
-        }
-      });
-
-      const htmlBodyStr = JSON.stringify(buildPayload(false));
-      const initialBody = htmlBodyStr.length <= 46000 ? htmlBodyStr : JSON.stringify(buildPayload(true));
-      let resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: initialBody
-      });
-      if (!resp.ok && htmlBodyStr.length <= 46000) {
-        resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(buildPayload(true))
-        });
-      }
-      if (!resp.ok) {
-        const errText = await resp.text();
-        console.warn('[EMAILJS] Erreur envoi direct :', errText);
-        throw new Error(errText);
-      }
-      console.log(`[EMAILJS] ✓ ${totalQty} QR code(s) envoyé(s) avec succès à ${d.ml}`);
-    }
-
     function drawRoundRect(ctx, x, y, w, h, r) {
       ctx.beginPath();
       ctx.moveTo(x + r, y);
@@ -5647,32 +5482,16 @@
       return `${s.slice(0, 6)}••••${s.slice(-4)}`;
     }
 
-    // Hash SHA-256 précalculé de "TICKWAY_TEAM_SALT_2026:cle_secrete_equipe_terrain_2026"
-    const DEFAULT_TEAM_KEY_SHA256 = '49fcd06f1e04bbe7116d06bd11ffcfebaeacb6d5b65724a37ca813e0e7241d2b';
-
-    // Hash SHA-256 salé du mot de passe fondateur configuré (aucun mot de passe en clair dans le code)
-    const DEFAULT_FOUNDER_AUTH = {
-      salt: '9f4c8e2a1b7d6035e8a4c1f290b3d7e6',
-      hash: '8a57720cc5ceb48c2c3969a4b8abb00221c9b37e4fc28641025f35effab1b698',
-      updatedAt: '2026-11-19T23:10:34.000Z'
-    };
+    // Sécurité : aucun secret (clé équipe, mot de passe fondateur) n'est embarqué dans le front.
+    // L'authentification est exclusivement vérifiée par le serveur (MySQL).
+    const DEFAULT_FOUNDER_AUTH = null;
 
     function loadLocalPlatform() {
       const defaultCaps = {};
       EV.forEach(e => { defaultCaps[e.id] = 500; });
       const def = {
         founder: DEFAULT_FOUNDER_AUTH, // { salt, hash, updatedAt } — jamais de mot de passe en clair
-        equipes: [
-          {
-            id: 'team-principale',
-            nom: 'Équipe Terrain Principale',
-            cle_hash: DEFAULT_TEAM_KEY_SHA256,
-            cle_hint: 'cle_se••••2026',
-            event_ids: ['*'],
-            actif: true,
-            cree_le: new Date().toISOString()
-          }
-        ],
+        equipes: [],
         scans_log: [],
         capacities: defaultCaps,
         expenses: [],
@@ -5965,6 +5784,13 @@
             return;
           }
         } catch (e) { }
+        // Serveur injoignable : aucune vérification locale de la clé (elle n'est jamais embarquée dans le front)
+        playFeedback('bad');
+        if (errEl) {
+          errEl.textContent = 'Serveur TickWay injoignable. Vérifiez votre connexion puis réessayez.';
+          errEl.hidden = false;
+        }
+        return;
       }
 
       // 2. Vérification isomorphe (stockage sécurisé par hash SHA-256)
@@ -6787,6 +6613,11 @@
               return;
             }
           } catch (e) { }
+          // Serveur injoignable : aucune vérification locale du mot de passe fondateur
+          playFeedback('bad');
+          errEl.textContent = 'Serveur TickWay injoignable. Vérifiez votre connexion puis réessayez.';
+          errEl.hidden = false;
+          return;
         }
 
         const lock = checkLocalLockout('founder');

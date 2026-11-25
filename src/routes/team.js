@@ -23,9 +23,10 @@ function formatAssignedEvents(eventIds) {
 }
 
 // POST /api/team/login — Vérification de la clé équipe côté serveur
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res, next) => {
+  try {
   const bucket = `team:${req.ip || 'local'}`;
-  const lock = checkRateLockout(bucket);
+  const lock = await checkRateLockout(bucket);
   if (lock.locked) {
     return res.status(429).json({
       statut: 'erreur',
@@ -34,7 +35,7 @@ router.post('/login', (req, res) => {
   }
 
   const rawKey = String(req.body.key || req.body.cle || '').trim();
-  const agentId = String(req.body.agentId || req.body.agent || 'Agent Terrain').trim();
+  const agentId = String(req.body.agentId || req.body.agent || 'Agent Terrain').trim().slice(0, 40);
 
   if (!rawKey) {
     return res.status(400).json({
@@ -43,9 +44,9 @@ router.post('/login', (req, res) => {
     });
   }
 
-  const equipe = findTeamByKey(rawKey);
+  const equipe = await findTeamByKey(rawKey);
   if (!equipe) {
-    const fail = recordFailedAttempt(bucket);
+    const fail = await recordFailedAttempt(bucket);
     return res.status(401).json({
       statut: 'erreur',
       message: fail.locked
@@ -61,9 +62,9 @@ router.post('/login', (req, res) => {
     });
   }
 
-  clearFailedAttempts(bucket);
-  const session = createTeamSession(equipe, agentId);
-  const stats = getTeamStats(equipe.id);
+  await clearFailedAttempts(bucket);
+  const session = await createTeamSession(equipe, agentId);
+  const stats = await getTeamStats(equipe.id);
 
   return res.json({
     statut: 'ok',
@@ -77,11 +78,19 @@ router.post('/login', (req, res) => {
     },
     stats,
   });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // GET /api/team/me — État de l'espace équipe & compteurs de contrôle
-router.get('/me', requireTeamAuth, (req, res) => {
-  const stats = getTeamStats(req.team.id);
+router.get('/me', requireTeamAuth, async (req, res, next) => {
+  let stats;
+  try {
+    stats = await getTeamStats(req.team.id);
+  } catch (err) {
+    return next(err);
+  }
   return res.json({
     statut: 'ok',
     agentId: req.agentId,

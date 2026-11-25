@@ -13,29 +13,59 @@ import validateRouter from './routes/validate.js';
 import resendRouter from './routes/resend.js';
 import teamRouter from './routes/team.js';
 import founderRouter from './routes/founder.js';
-import pool from './db/pool.js';
-import { INIT_SQL } from './db/init.js';
+import { initDb } from './db/init.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT) || 3000;
 
+// ── Adresse canonique : www et http → https://<domaine> (filet de sécurité derrière le .htaccess Apache) ──
+const CANONICAL = (() => {
+  try {
+    const u = new URL(process.env.CANONICAL_URL || process.env.APP_URL || '');
+    return u.protocol === 'https:' ? u : null;
+  } catch {
+    return null;
+  }
+})();
+if (process.env.NODE_ENV === 'production' && CANONICAL) {
+  const canonicalHost = CANONICAL.host.toLowerCase();
+  app.use((req, res, next) => {
+    const host = String(req.get('host') || '').toLowerCase();
+    const hostname = host.replace(/:\d+$/, '');
+    if (!host || hostname === 'localhost' || hostname === '127.0.0.1') return next();
+    if (req.path.startsWith('/.well-known/acme-challenge/')) return next();
+    const isWww = host === `www.${canonicalHost}`;
+    // Redirection HTTPS uniquement si le proxy indique explicitement une requête http (aucune boucle possible)
+    const forwardedProto = String(req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+    const isPlainHttp = forwardedProto === 'http';
+    if (!isWww && !isPlainHttp) return next();
+    const status = req.method === 'GET' || req.method === 'HEAD' ? 301 : 308; // 308 : un POST reste un POST
+    return res.redirect(status, `https://${canonicalHost}${req.originalUrl}`);
+  });
+}
+
 // ── Sécurité ──
 app.use(helmet({
   contentSecurityPolicy: false, // Le front est un fichier statique autonome
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: false },
 }));
 
 // ── CORS ──
 const origins = (process.env.CORS_ORIGINS || '')
   .split(',')
-  .map((s) => s.trim())
+  .map((s) => s.trim().replace(/\/$/, ''))
   .filter(Boolean);
+// L'origine publique du site (APP_URL) est toujours autorisée
+try {
+  if (process.env.APP_URL) origins.push(new URL(process.env.APP_URL).origin);
+} catch { /* APP_URL invalide : ignorée */ }
 
 app.use(cors({
   origin: (origin, callback) => {
     // Autoriser les appels sans origine (ex: file://, curl, mobile) ou en développement
-    if (!origin || origin === 'null' || process.env.NODE_ENV !== 'production' || origins.length === 0 || origins.includes(origin)) {
+    if (!origin || process.env.NODE_ENV !== 'production' || origins.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error('Non autorisé par CORS'));
@@ -109,16 +139,43 @@ app.get('*', (req, res) => {
   res.sendFile(join(__dirname, '..', 'public', 'index.html'));
 });
 
-// ── Démarrage ──
-app.listen(PORT, async () => {
-  try {
-    await pool.query(INIT_SQL);
-  } catch (err) {
-    console.warn('[DB] Initialisation schéma :', err.message);
+// ── Gestion centralisée des erreurs (aucune trace interne renvoyée au client) ──
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  if (err && err.type === 'entity.parse.failed') {
+    return res.status(400).json({ statut: 'erreur', message: 'Corps de requête JSON invalide.' });
   }
-  console.log(`\n🚐 TickWay backend démarré sur http://localhost:${PORT}\n`);
-  console.log(`   POST /api/reservations   — Créer une réservation`);
+  if (err && err.type === 'entity.too.large') {
+    return res.status(413).json({ statut: 'erreur', message: 'Requête trop volumineuse.' });
+  }
+  if (err && err.message === 'Non autorisé par CORS') {
+    return res.status(403).json({ statut: 'erreur', message: 'Origine non autorisée.' });
+  }
+  if (err && err.code === 'DB_UNAVAILABLE') {
+    console.error('[DB]', err.message);
+    return res.status(503).json({ statut: 'erreur', message: 'Service temporairement indisponible.' });
+  }
+  console.error('[SERVEUR] Erreur non gérée :', err);
+  return res.status(500).json({ statut: 'erreur', message: 'Erreur interne du serveur.' });
+});
+
+// ── Démarrage : la base MySQL doit être prête avant d'accepter des requêtes ──
+try {
+  await initDb();
+} catch (err) {
+  console.error(`
+❌ Impossible d'initialiser la base MySQL : ${err.message}
+`);
+  process.exit(1);
+}
+
+app.listen(PORT, () => {
+  console.log(`
+🚐 TickWay backend démarré sur http://localhost:${PORT} (MySQL)
+`);
+  console.log(`   POST /api/payments/paysecurehub/init — Créer une commande`);
   console.log(`   POST /api/validate       — Valider un billet (clé équipe requise)`);
   console.log(`   POST /api/team/login     — Connexion Espace Équipe`);
-  console.log(`   GET  /api/founder/*      — Dashboard Fondateur sécurisé\n`);
+  console.log(`   GET  /api/founder/*      — Dashboard Fondateur sécurisé
+`);
 });

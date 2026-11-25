@@ -6,9 +6,17 @@ import { recordScanLog, getTeamStats } from '../services/platformStore.js';
 
 const router = Router();
 
-router.post('/', requireTeamAuth, async (req, res) => {
-  const reference = (req.body.reference || '').trim().toUpperCase();
-  const agentId = String(req.body.agentId || req.agentId || 'Agent Terrain').trim();
+router.post('/', requireTeamAuth, async (req, res, next) => {
+  try {
+    return await handleValidate(req, res);
+  } catch (err) {
+    return next(err);
+  }
+});
+
+async function handleValidate(req, res) {
+  const reference = String(req.body.reference || '').trim().toUpperCase().slice(0, 64);
+  const agentId = String(req.body.agentId || req.agentId || 'Agent Terrain').trim().slice(0, 40);
   const equipe = req.team;
 
   if (!reference) {
@@ -21,7 +29,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
 
   // Format attendu : TW-XXXX-XXXX
   if (!/^TW-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(reference)) {
-    recordScanLog({
+    await recordScanLog({
       reference,
       passager: 'Inconnu',
       eventId: null,
@@ -37,7 +45,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
       couleur: 'ROUGE',
       reference,
       message: 'ENTRÉE REFUSÉE — Format de ticket invalide.',
-      stats: getTeamStats(equipe.id),
+      stats: await getTeamStats(equipe.id),
     });
   }
 
@@ -52,7 +60,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
     );
 
     if (checkRows.length === 0) {
-      recordScanLog({
+      await recordScanLog({
         reference,
         passager: 'Introuvable',
         eventId: null,
@@ -68,7 +76,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
         couleur: 'ROUGE',
         reference,
         message: 'ENTRÉE REFUSÉE — Ticket introuvable dans la base de données.',
-        stats: getTeamStats(equipe.id),
+        stats: await getTeamStats(equipe.id),
       });
     }
 
@@ -78,7 +86,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
     // 2. Vérifier que l'événement est bien attribué à l'équipe de l'agent
     const allowedEvents = Array.isArray(equipe.event_ids) ? equipe.event_ids : ['*'];
     if (!allowedEvents.includes('*') && !allowedEvents.includes(ticket.event_id)) {
-      recordScanLog({
+      await recordScanLog({
         reference,
         passager: passagerNom,
         eventId: ticket.event_id,
@@ -97,13 +105,13 @@ router.post('/', requireTeamAuth, async (req, res) => {
         evenement: ticket.event_nom,
         date: ticket.event_date,
         message: `ENTRÉE REFUSÉE — Votre équipe n'est pas affectée à l'événement « ${ticket.event_nom} ».`,
-        stats: getTeamStats(equipe.id),
+        stats: await getTeamStats(equipe.id),
       });
     }
 
     // 3. Vérifier l'invalidation par transfert, le paiement et la validité du ticket
     if (ticket.statut === 'transfere') {
-      recordScanLog({
+      await recordScanLog({
         reference,
         passager: passagerNom,
         eventId: ticket.event_id,
@@ -123,7 +131,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
         date: ticket.event_date,
         statutPaiement: 'Ancien QR code invalidé après transfert',
         message: 'ENTRÉE REFUSÉE — Ce billet a été transféré à un autre bénéficiaire : cet ancien QR code est définitivement invalidé.',
-        stats: getTeamStats(equipe.id),
+        stats: await getTeamStats(equipe.id),
       });
     }
 
@@ -131,7 +139,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
       const raison = ticket.statut === 'en_attente'
         ? 'Paiement non confirmé (en attente)'
         : 'Ticket annulé / remboursé';
-      recordScanLog({
+      await recordScanLog({
         reference,
         passager: passagerNom,
         eventId: ticket.event_id,
@@ -151,22 +159,27 @@ router.post('/', requireTeamAuth, async (req, res) => {
         date: ticket.event_date,
         statutPaiement: raison,
         message: `ENTRÉE REFUSÉE — ${raison}.`,
-        stats: getTeamStats(equipe.id),
+        stats: await getTeamStats(equipe.id),
       });
     }
 
     // 4. Mise à jour atomique : empêche tout double scan simultané par plusieurs agents
-    const { rows, rowCount } = await pool.query(
+    // (MySQL : l'UPDATE conditionnel est atomique ; affectedRows === 1 garantit qu'un seul agent valide le billet)
+    const { rowCount } = await pool.query(
       `UPDATE reservations
-       SET statut = 'utilise', utilise_le = now(), agent_id = $2, equipe_id = $3, equipe_nom = $4
-       WHERE reference = $1 AND statut = 'valide'
-       RETURNING reference, prenom, nom, event_id, event_nom, event_date,
-                 categorie, zone, point_relais, mode_paiement, quantite, utilise_le, agent_id, equipe_nom`,
+       SET statut = 'utilise', utilise_le = UTC_TIMESTAMP(3), agent_id = $2, equipe_id = $3, equipe_nom = $4
+       WHERE reference = $1 AND statut = 'valide'`,
       [reference, agentId, equipe.id, equipe.nom]
     );
 
     if (rowCount === 1) {
       // VERT : Ticket valide, entrée autorisée
+      const { rows } = await pool.query(
+        `SELECT reference, prenom, nom, event_id, event_nom, event_date,
+                categorie, zone, point_relais, mode_paiement, quantite, utilise_le, agent_id, equipe_nom
+         FROM reservations WHERE reference = $1`,
+        [reference]
+      );
       const r = rows[0];
       const quantite = r.quantite || 1;
       const tickets = [];
@@ -180,7 +193,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
         });
       }
 
-      const scanEntry = recordScanLog({
+      const scanEntry = await recordScanLog({
         reference: r.reference,
         passager: `${r.prenom} ${r.nom}`,
         eventId: r.event_id,
@@ -211,7 +224,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
         equipeNom: equipe.nom,
         tickets,
         scan: scanEntry,
-        stats: getTeamStats(equipe.id),
+        stats: await getTeamStats(equipe.id),
       });
     }
 
@@ -235,7 +248,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
       });
     }
 
-    const scanEntry = recordScanLog({
+    const scanEntry = await recordScanLog({
       reference: r.reference,
       passager: `${r.prenom} ${r.nom}`,
       eventId: r.event_id,
@@ -266,7 +279,7 @@ router.post('/', requireTeamAuth, async (req, res) => {
       scanneParEquipe: r.equipe_nom || 'Équipe Terrain',
       tickets,
       scan: scanEntry,
-      stats: getTeamStats(equipe.id),
+      stats: await getTeamStats(equipe.id),
     });
   } catch (err) {
     console.error('[VALIDATE] Erreur :', err);
@@ -276,6 +289,6 @@ router.post('/', requireTeamAuth, async (req, res) => {
       message: 'Erreur interne du serveur lors de la vérification.',
     });
   }
-});
+}
 
 export default router;

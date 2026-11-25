@@ -6,8 +6,8 @@ import { generateReference } from '../services/reference.js';
 import { generateQRDataUrl } from '../services/qr.js';
 import { sendTicketEmail } from '../services/email.js';
 import { findEvent, findRelais, PAIEMENTS } from '../services/events.js';
-import { getPlatformConfig } from '../services/platformStore.js';
-import { hashSecret } from '../services/userStore.js';
+import { getTransactionFeeRate } from '../services/platformStore.js';
+import { hashSecret } from '../services/ticketStore.js';
 import { validateReservation } from '../middleware/validate.js';
 import {
   getPaySecureHubConfig,
@@ -121,15 +121,11 @@ async function getOrderRows(commandeId) {
 }
 
 async function loadPaymentTx(commandeId) {
-  return pool.exec(
+  const { rows } = await pool.query(
     `SELECT * FROM payment_transactions WHERE commande_id = $1 LIMIT 1`,
-    [commandeId],
-    () => {
-      const db = pool.loadPaymentsJson();
-      const row = db[commandeId] || null;
-      return { rows: row ? [row] : [], rowCount: row ? 1 : 0 };
-    }
-  ).then((res) => (res.rows && res.rows[0]) || null);
+    [commandeId]
+  );
+  return rows[0] || null;
 }
 
 async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload = null } = {}) {
@@ -167,7 +163,6 @@ async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload 
     };
   }
 
-  const nowIso = new Date().toISOString();
   let emailPayload = null;
 
   if (statusInfo.state === 'paid') {
@@ -189,12 +184,12 @@ async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload 
                transaction_ref = COALESCE($2, transaction_ref),
                provider_service = COALESCE($3, provider_service),
                fees = GREATEST(fees, $4),
-               last_webhook_payload = COALESCE($5::jsonb, last_webhook_payload),
-               last_status_payload = $6::jsonb,
-               email_sent = true,
+               last_webhook_payload = COALESCE($5, last_webhook_payload),
+               last_status_payload = $6,
+               email_sent = 1,
                access_token_enc = NULL,
-               paid_at = COALESCE(paid_at, now()),
-               updated_at = now()
+               paid_at = COALESCE(paid_at, UTC_TIMESTAMP(3)),
+               updated_at = UTC_TIMESTAMP(3)
            WHERE commande_id = $1`,
           [
             commandeId,
@@ -207,7 +202,7 @@ async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload 
         );
 
         const resCountRes = await client.query(
-          `SELECT COUNT(*)::int AS cnt FROM reservations WHERE commande_id = $1`,
+          `SELECT COUNT(*) AS cnt FROM reservations WHERE commande_id = $1`,
           [commandeId]
         );
         const totalTickets = Math.max(1, Number((resCountRes.rows[0] && resCountRes.rows[0].cnt) || 1));
@@ -233,40 +228,6 @@ async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload 
           rows: updatedRes.rows,
           tx: { ...curTx, statut: 'paye', provider_service: statusInfo.serviceName || curTx.provider_service },
         };
-      },
-      () => {
-        const payDb = pool.loadPaymentsJson();
-        const curTx = payDb[commandeId];
-        if (!curTx) return null;
-
-        const alreadyEmailSent = Boolean(curTx.email_sent);
-        const recoveredToken = !alreadyEmailSent ? decryptAccessToken(curTx.access_token_enc) : null;
-
-        curTx.statut = 'paye';
-        if (statusInfo.transactionId) curTx.transaction_ref = statusInfo.transactionId;
-        if (statusInfo.serviceName) curTx.provider_service = statusInfo.serviceName;
-        if (statusInfo.fees) curTx.fees = Math.max(Number(curTx.fees) || 0, statusInfo.fees);
-        if (webhookPayload) curTx.last_webhook_payload = webhookPayload;
-        curTx.last_status_payload = statusInfo.raw || {};
-        curTx.email_sent = true;
-        curTx.access_token_enc = null;
-        if (!curTx.paid_at) curTx.paid_at = nowIso;
-        curTx.updated_at = nowIso;
-        pool.savePaymentsJson(payDb);
-
-        const resDb = pool.loadReservationsJson();
-        const matching = Object.values(resDb).filter((r) => r.commande_id === commandeId);
-        const perTicketFee = statusInfo.fees > 0 && matching.length > 0 ? Math.round(statusInfo.fees / matching.length) : 0;
-        for (const r of matching) {
-          if (r.statut === 'en_attente') {
-            r.statut = 'valide';
-            if (statusInfo.serviceName) r.mode_paiement = statusInfo.serviceName;
-            if (!r.frais_transaction && perTicketFee > 0) r.frais_transaction = perTicketFee;
-          }
-        }
-        pool.saveReservationsJson(resDb);
-        matching.sort((a, b) => String(a.reference || '').localeCompare(String(b.reference || '')));
-        return { alreadyEmailSent, recoveredToken, rows: matching, tx: curTx };
       }
     );
 
@@ -325,9 +286,9 @@ async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload 
         await client.query(
           `UPDATE payment_transactions
            SET statut = CASE WHEN statut = 'en_attente' THEN 'echoue' ELSE statut END,
-               last_webhook_payload = COALESCE($2::jsonb, last_webhook_payload),
-               last_status_payload = $3::jsonb,
-               updated_at = now()
+               last_webhook_payload = COALESCE($2, last_webhook_payload),
+               last_status_payload = $3,
+               updated_at = UTC_TIMESTAMP(3)
            WHERE commande_id = $1`,
           [commandeId, webhookPayload ? JSON.stringify(webhookPayload) : null, JSON.stringify(statusInfo.raw || {})]
         );
@@ -335,23 +296,6 @@ async function verifyAndFinalizeOrder(commandeId, frontOrigin, { webhookPayload 
           `UPDATE reservations SET statut = 'annule' WHERE commande_id = $1 AND statut = 'en_attente'`,
           [commandeId]
         );
-      },
-      () => {
-        const payDb = pool.loadPaymentsJson();
-        if (payDb[commandeId]) {
-          if (payDb[commandeId].statut === 'en_attente') payDb[commandeId].statut = 'echoue';
-          if (webhookPayload) payDb[commandeId].last_webhook_payload = webhookPayload;
-          payDb[commandeId].last_status_payload = statusInfo.raw || {};
-          payDb[commandeId].updated_at = nowIso;
-          pool.savePaymentsJson(payDb);
-        }
-        const resDb = pool.loadReservationsJson();
-        for (const r of Object.values(resDb)) {
-          if (r.commande_id === commandeId && r.statut === 'en_attente') {
-            r.statut = 'annule';
-          }
-        }
-        pool.saveReservationsJson(resDb);
       }
     );
     rows = await getOrderRows(commandeId);
@@ -408,9 +352,15 @@ router.post('/paysecurehub/init', async (req, res) => {
   const localiteFinale = (relais && relais.commune ? relais.commune.trim() : '')
     || (localite && localite !== 'Non renseignée' ? localite : 'Localité non renseignée');
   const categorieFinale = categorie || 'Standard Navette';
-  const platformCfg = getPlatformConfig();
-  const fraisUnitaire = platformCfg.frais_taux_pct > 0
-    ? Math.round((event.p * platformCfg.frais_taux_pct) / 100)
+  let fraisTauxPct = 0;
+  try {
+    fraisTauxPct = await getTransactionFeeRate();
+  } catch (err) {
+    console.error('[PAYSECUREHUB] Lecture taux de frais :', err.message);
+    return res.status(503).json({ statut: 'erreur', message: 'Service temporairement indisponible.' });
+  }
+  const fraisUnitaire = fraisTauxPct > 0
+    ? Math.round((event.p * fraisTauxPct) / 100)
     : 0;
 
   const totalMontant = event.p * quantite;
@@ -429,7 +379,6 @@ router.post('/paysecurehub/init', async (req, res) => {
       references.push(await generateReference());
     }
 
-    const nowIso = new Date().toISOString();
     await pool.withTransaction(
       async (client) => {
         for (let i = 0; i < quantite; i++) {
@@ -452,74 +401,9 @@ router.post('/paysecurehub/init', async (req, res) => {
         await client.query(
           `INSERT INTO payment_transactions
             (commande_id, provider, code_paiement, amount, currency, statut, email_sent, access_token_enc)
-           VALUES ($1, 'paysecurehub', $2, $3, 'XOF', 'en_attente', false, $4)`,
+           VALUES ($1, 'paysecurehub', $2, $3, 'XOF', 'en_attente', 0, $4)`,
           [commandeId, commandeId, totalMontant, accessTokenEnc]
         );
-      },
-      async () => {
-        const resDb = pool.loadReservationsJson();
-        for (let i = 0; i < quantite; i++) {
-          const ref = references[i];
-          const nomPassagerTicket = quantite > 1 ? `${nom} (Ticket ${i + 1}/${quantite})` : nom;
-          const qrText = `${frontOrigin}/#controle?c=${encodeURIComponent(ref)}`;
-          resDb[ref] = {
-            reference: ref,
-            commande_id: commandeId,
-            user_id: null,
-            prenom,
-            nom: nomPassagerTicket,
-            telephone,
-            email,
-            localite: localiteFinale,
-            categorie: categorieFinale,
-            event_id: event.id,
-            event_nom: event.n,
-            event_date: eventDate,
-            zone: relais.zone,
-            point_relais: pointRelaisStr,
-            montant: event.p,
-            frais_transaction: fraisUnitaire,
-            mode_paiement: pmLabel,
-            quantite: 1,
-            statut: 'en_attente',
-            qr_text: qrText,
-            guest_access_hash: guestAccessHash,
-            transfer_count: 0,
-            transferred_from: null,
-            transferred_to: null,
-            transferred_at: null,
-            cree_le: nowIso,
-            utilise_le: null,
-            agent_id: null,
-            equipe_id: null,
-            equipe_nom: null,
-          };
-        }
-        pool.saveReservationsJson(resDb);
-
-        const payDb = pool.loadPaymentsJson();
-        payDb[commandeId] = {
-          commande_id: commandeId,
-          provider: 'paysecurehub',
-          code_paiement: commandeId,
-          provider_token: null,
-          payment_url: null,
-          transaction_ref: null,
-          pm_id: null,
-          provider_service: null,
-          amount: totalMontant,
-          fees: 0,
-          currency: 'XOF',
-          statut: 'en_attente',
-          email_sent: false,
-          access_token_enc: accessTokenEnc,
-          last_webhook_payload: null,
-          last_status_payload: null,
-          paid_at: null,
-          created_at: nowIso,
-          updated_at: nowIso,
-        };
-        pool.savePaymentsJson(payDb);
       }
     );
 
@@ -544,44 +428,21 @@ router.post('/paysecurehub/init', async (req, res) => {
     } catch (initErr) {
       await pool.withTransaction(
         async (client) => {
-          await client.query(`UPDATE payment_transactions SET statut = 'echoue', access_token_enc = NULL, updated_at = now() WHERE commande_id = $1`, [commandeId]);
+          await client.query(`UPDATE payment_transactions SET statut = 'echoue', access_token_enc = NULL, updated_at = UTC_TIMESTAMP(3) WHERE commande_id = $1`, [commandeId]);
           await client.query(`UPDATE reservations SET statut = 'annule' WHERE commande_id = $1 AND statut = 'en_attente'`, [commandeId]);
-        },
-        () => {
-          const payDb = pool.loadPaymentsJson();
-          if (payDb[commandeId]) {
-            payDb[commandeId].statut = 'echoue';
-            payDb[commandeId].access_token_enc = null;
-            payDb[commandeId].updated_at = new Date().toISOString();
-            pool.savePaymentsJson(payDb);
-          }
-          const resDb = pool.loadReservationsJson();
-          for (const r of Object.values(resDb)) {
-            if (r.commande_id === commandeId && r.statut === 'en_attente') r.statut = 'annule';
-          }
-          pool.saveReservationsJson(resDb);
         }
       );
-      return res.status(initErr.status || 502).json({
+      console.error(`[PAYSECUREHUB] Échec init ${commandeId} :`, initErr.message);
+      return res.status(502).json({
         statut: 'erreur',
-        code: initErr.code || 'PAYSECUREHUB_INIT_FAILED',
-        message: initErr.message || 'Impossible d’initialiser le paiement PaySecureHub.',
+        code: 'PAYSECUREHUB_INIT_FAILED',
+        message: 'Le service de paiement est momentanément indisponible. Réessayez dans quelques instants.',
       });
     }
 
-    await pool.exec(
-      `UPDATE payment_transactions SET provider_token = $2, payment_url = $3, updated_at = now() WHERE commande_id = $1`,
-      [commandeId, session.tokens, session.url],
-      () => {
-        const payDb = pool.loadPaymentsJson();
-        if (payDb[commandeId]) {
-          payDb[commandeId].provider_token = session.tokens;
-          payDb[commandeId].payment_url = session.url;
-          payDb[commandeId].updated_at = new Date().toISOString();
-          pool.savePaymentsJson(payDb);
-        }
-        return { rowCount: 1 };
-      }
+    await pool.query(
+      `UPDATE payment_transactions SET provider_token = $2, payment_url = $3, updated_at = UTC_TIMESTAMP(3) WHERE commande_id = $1`,
+      [commandeId, session.tokens, session.url]
     );
 
     return res.status(201).json({

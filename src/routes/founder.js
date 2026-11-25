@@ -22,28 +22,40 @@ import {
   addExpense,
   deleteExpense,
   updateTransactionFeeRate,
-  getTransferConfig,
   updateTransferConfig,
+  getRecentScans,
+  isFounderSetupAllowed,
 } from '../services/platformStore.js';
-import { getAdminTransfersReport } from '../services/userStore.js';
+import { getAdminTransfersReport } from '../services/ticketStore.js';
 import { requireFounderAuth } from '../middleware/auth.js';
 
 const router = Router();
 
 // GET /api/founder/status — Vérifie si le mot de passe fondateur a déjà été configuré
-router.get('/status', (req, res) => {
-  return res.json({
-    statut: 'ok',
-    configured: isFounderConfigured(),
-  });
+router.get('/status', async (req, res, next) => {
+  try {
+    return res.json({
+      statut: 'ok',
+      configured: await isFounderConfigured(),
+    });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /api/founder/setup — Procédure sécurisée de configuration initiale du 2e mot de passe fondateur
-router.post('/setup', (req, res) => {
-  if (isFounderConfigured()) {
+router.post('/setup', async (req, res, next) => {
+  try {
+  if (await isFounderConfigured()) {
     return res.status(403).json({
       statut: 'erreur',
       message: 'Le mot de passe fondateur est déjà configuré. Utilisez la page de connexion.',
+    });
+  }
+  if (!isFounderSetupAllowed()) {
+    return res.status(403).json({
+      statut: 'erreur',
+      message: 'Configuration en ligne désactivée en production : définissez FOUNDER_PASSWORD sur le serveur puis redémarrez.',
     });
   }
   const password = String(req.body.password || '');
@@ -63,23 +75,27 @@ router.post('/setup', (req, res) => {
   }
 
   try {
-    setupFounderPassword(password);
-    const session = createFounderSession(req.ip || 'local');
-    return res.status(201).json({
-      statut: 'ok',
-      message: 'Mot de passe fondateur configuré avec succès.',
-      token: session.token,
-      timeoutMs: session.timeoutMs,
-    });
+    await setupFounderPassword(password);
   } catch (err) {
     return res.status(400).json({ statut: 'erreur', message: err.message });
+  }
+  const session = await createFounderSession(req.ip || 'local');
+  return res.status(201).json({
+    statut: 'ok',
+    message: 'Mot de passe fondateur configuré avec succès.',
+    token: session.token,
+    timeoutMs: session.timeoutMs,
+  });
+  } catch (err) {
+    return next(err);
   }
 });
 
 // POST /api/founder/login — Connexion au Dashboard Fondateur (2e mot de passe indépendant)
-router.post('/login', (req, res) => {
+router.post('/login', async (req, res, next) => {
+  try {
   const bucket = `founder:${req.ip || 'local'}`;
-  const lock = checkRateLockout(bucket);
+  const lock = await checkRateLockout(bucket);
   if (lock.locked) {
     return res.status(429).json({
       statut: 'erreur',
@@ -87,7 +103,7 @@ router.post('/login', (req, res) => {
     });
   }
 
-  if (!isFounderConfigured()) {
+  if (!(await isFounderConfigured())) {
     return res.status(400).json({
       statut: 'non_configure',
       message: "Le mot de passe fondateur n'est pas encore configuré. Configurez-le d'abord.",
@@ -102,9 +118,9 @@ router.post('/login', (req, res) => {
     });
   }
 
-  const ok = verifyFounderPassword(password);
+  const ok = await verifyFounderPassword(password);
   if (!ok) {
-    const fail = recordFailedAttempt(bucket);
+    const fail = await recordFailedAttempt(bucket);
     return res.status(401).json({
       statut: 'erreur',
       message: fail.locked
@@ -113,26 +129,33 @@ router.post('/login', (req, res) => {
     });
   }
 
-  clearFailedAttempts(bucket);
-  const session = createFounderSession(req.ip || 'local');
+  await clearFailedAttempts(bucket);
+  const session = await createFounderSession(req.ip || 'local');
   return res.json({
     statut: 'ok',
     token: session.token,
     timeoutMs: session.timeoutMs,
   });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /api/founder/logout — Déconnexion explicite
-router.post('/logout', (req, res) => {
-  const token = String(req.headers['x-founder-token'] || '').trim();
-  revokeFounderSession(token);
-  return res.json({ statut: 'ok' });
+router.post('/logout', async (req, res, next) => {
+  try {
+    const token = String(req.headers['x-founder-token'] || '').trim();
+    await revokeFounderSession(token);
+    return res.json({ statut: 'ok' });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // POST /api/founder/password — Changement du mot de passe fondateur
-router.post('/password', requireFounderAuth, (req, res) => {
+router.post('/password', requireFounderAuth, async (req, res) => {
   try {
-    changeFounderPassword(req.body.currentPassword, req.body.newPassword);
+    await changeFounderPassword(req.body.currentPassword, req.body.newPassword);
     return res.json({ statut: 'ok', message: 'Mot de passe fondateur mis à jour.' });
   } catch (err) {
     return res.status(400).json({ statut: 'erreur', message: err.message });
@@ -166,7 +189,7 @@ router.get('/dashboard', requireFounderAuth, async (req, res) => {
 
   try {
     const { rows: allRows } = await pool.query('SELECT * FROM reservations ORDER BY cree_le DESC');
-    const cfg = getPlatformConfig();
+    const cfg = await getPlatformConfig();
     const capacities = cfg.capacities || {};
 
     // Filtrage période + événement
@@ -368,15 +391,15 @@ router.get('/dashboard', requireFounderAuth, async (req, res) => {
     });
 
     // 5. Équipes & statistiques par agent
-    const equipes = (cfg.equipes || []).map((eq) => ({
+    const equipes = await Promise.all((cfg.equipes || []).map(async (eq) => ({
       id: eq.id,
       nom: eq.nom,
       cle_hint: eq.cle_hint,
       event_ids: eq.event_ids,
       actif: eq.actif,
       cree_le: eq.cree_le,
-      stats: getTeamStats(eq.id),
-    }));
+      stats: await getTeamStats(eq.id),
+    })));
 
     // 6. Liste détaillée des ventes réelles
     const ventes = filteredRows.map((r) => ({
@@ -448,7 +471,7 @@ router.get('/dashboard', requireFounderAuth, async (req, res) => {
       },
       evenements: evenementsStats,
       equipes,
-      scansLog: (cfg.scans_log || []).slice(0, 100),
+      scansLog: await getRecentScans(100),
       transferts: await getAdminTransfersReport(),
       ventes,
     });
@@ -459,10 +482,10 @@ router.get('/dashboard', requireFounderAuth, async (req, res) => {
 });
 
 // ── 5. GESTION DES ÉQUIPES (Création, attribution événement, désactivation, réinitialisation clé) ──
-router.post('/teams', requireFounderAuth, (req, res) => {
+router.post('/teams', requireFounderAuth, async (req, res) => {
   try {
     const { nom, eventIds } = req.body;
-    const { team, plainKey } = createTeam({ nom, eventIds });
+    const { team, plainKey } = await createTeam({ nom, eventIds });
     return res.status(201).json({
       statut: 'ok',
       message: 'Nouvelle équipe créée avec succès.',
@@ -481,12 +504,17 @@ router.post('/teams', requireFounderAuth, (req, res) => {
   }
 });
 
-router.patch('/teams/:id', requireFounderAuth, (req, res) => {
-  const team = updateTeam(req.params.id, {
+router.patch('/teams/:id', requireFounderAuth, async (req, res, next) => {
+  let team;
+  try {
+    team = await updateTeam(req.params.id, {
     nom: req.body.nom,
     eventIds: req.body.eventIds,
     actif: req.body.actif,
   });
+  } catch (err) {
+    return next(err);
+  }
   if (!team) {
     return res.status(404).json({ statut: 'erreur', message: 'Équipe introuvable.' });
   }
@@ -504,8 +532,13 @@ router.patch('/teams/:id', requireFounderAuth, (req, res) => {
   });
 });
 
-router.post('/teams/:id/reset-key', requireFounderAuth, (req, res) => {
-  const result = resetTeamKey(req.params.id);
+router.post('/teams/:id/reset-key', requireFounderAuth, async (req, res, next) => {
+  let result;
+  try {
+    result = await resetTeamKey(req.params.id);
+  } catch (err) {
+    return next(err);
+  }
   if (!result) {
     return res.status(404).json({ statut: 'erreur', message: 'Équipe introuvable.' });
   }
@@ -523,9 +556,9 @@ router.post('/teams/:id/reset-key', requireFounderAuth, (req, res) => {
   });
 });
 
-router.delete('/teams/:id', requireFounderAuth, (req, res) => {
+router.delete('/teams/:id', requireFounderAuth, async (req, res) => {
   try {
-    const ok = deleteTeam(req.params.id);
+    const ok = await deleteTeam(req.params.id);
     if (!ok) return res.status(404).json({ statut: 'erreur', message: 'Équipe introuvable.' });
     return res.json({ statut: 'ok', message: 'Équipe supprimée.' });
   } catch (err) {
@@ -534,16 +567,20 @@ router.delete('/teams/:id', requireFounderAuth, (req, res) => {
 });
 
 // ── Gestion des capacités d'événements, frais & dépenses ──
-router.post('/capacity', requireFounderAuth, (req, res) => {
+router.post('/capacity', requireFounderAuth, async (req, res) => {
   const { eventId, capacity } = req.body;
   if (!eventId) return res.status(400).json({ statut: 'erreur', message: 'Événement requis.' });
-  const capacities = updateEventCapacity(eventId, capacity);
-  return res.json({ statut: 'ok', capacities });
+  try {
+    const capacities = await updateEventCapacity(String(eventId), capacity);
+    return res.json({ statut: 'ok', capacities });
+  } catch (err) {
+    return res.status(400).json({ statut: 'erreur', message: err.message });
+  }
 });
 
-router.post('/expenses', requireFounderAuth, (req, res) => {
+router.post('/expenses', requireFounderAuth, async (req, res) => {
   try {
-    const expenses = addExpense({
+    const expenses = await addExpense({
       libelle: req.body.libelle,
       montant: req.body.montant,
       eventId: req.body.eventId,
@@ -554,14 +591,22 @@ router.post('/expenses', requireFounderAuth, (req, res) => {
   }
 });
 
-router.delete('/expenses/:id', requireFounderAuth, (req, res) => {
-  const expenses = deleteExpense(req.params.id);
-  return res.json({ statut: 'ok', expenses });
+router.delete('/expenses/:id', requireFounderAuth, async (req, res, next) => {
+  try {
+    const expenses = await deleteExpense(req.params.id);
+    return res.json({ statut: 'ok', expenses });
+  } catch (err) {
+    return next(err);
+  }
 });
 
-router.post('/fees', requireFounderAuth, (req, res) => {
-  const pct = updateTransactionFeeRate(req.body.fraisTauxPct);
-  return res.json({ statut: 'ok', fraisTauxPct: pct });
+router.post('/fees', requireFounderAuth, async (req, res, next) => {
+  try {
+    const pct = await updateTransactionFeeRate(req.body.fraisTauxPct);
+    return res.json({ statut: 'ok', fraisTauxPct: pct });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // ── Gestion & historique des transferts de billets (Administration) ──
@@ -574,14 +619,18 @@ router.get('/transfers', requireFounderAuth, async (req, res) => {
   }
 });
 
-router.post('/transfer-config', requireFounderAuth, (req, res) => {
-  const { enabled, maxTransfersPerTicket, maxTransfersPerUser } = req.body || {};
-  const config = updateTransferConfig({ enabled, maxTransfersPerTicket, maxTransfersPerUser });
-  return res.json({
-    statut: 'ok',
-    message: 'Paramètres de transfert mis à jour.',
-    config,
-  });
+router.post('/transfer-config', requireFounderAuth, async (req, res, next) => {
+  try {
+    const { enabled, maxTransfersPerTicket, maxTransfersPerUser } = req.body || {};
+    const config = await updateTransferConfig({ enabled, maxTransfersPerTicket, maxTransfersPerUser });
+    return res.json({
+      statut: 'ok',
+      message: 'Paramètres de transfert mis à jour.',
+      config,
+    });
+  } catch (err) {
+    return next(err);
+  }
 });
 
 // Mise à jour du statut d'un ticket (valide, en_attente, annule) par le fondateur
@@ -592,16 +641,16 @@ router.patch('/reservations/:reference/statut', requireFounderAuth, async (req, 
     return res.status(400).json({ statut: 'erreur', message: 'Statut invalide.' });
   }
   try {
-    const { rows, rowCount } = await pool.query(
-      `UPDATE reservations SET statut = $2 WHERE reference = $1 RETURNING *`,
-      [reference, nouveauStatut]
-    );
-    if (rowCount === 0) {
+    const { rows: existing } = await pool.query('SELECT reference FROM reservations WHERE reference = $1', [reference]);
+    if (existing.length === 0) {
       return res.status(404).json({ statut: 'erreur', message: 'Ticket introuvable.' });
     }
+    await pool.query('UPDATE reservations SET statut = $2 WHERE reference = $1', [reference, nouveauStatut]);
+    const { rows } = await pool.query('SELECT * FROM reservations WHERE reference = $1', [reference]);
     return res.json({ statut: 'ok', ticket: rows[0] });
   } catch (err) {
-    return res.status(500).json({ statut: 'erreur', message: err.message });
+    console.error('[FOUNDER] Mise à jour statut :', err);
+    return res.status(500).json({ statut: 'erreur', message: 'Erreur lors de la mise à jour du ticket.' });
   }
 });
 

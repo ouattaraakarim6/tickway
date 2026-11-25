@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 import { generateQR, generateQRDataUrl } from '../services/qr.js';
-import { getGuestTicketsByAccessToken } from '../services/userStore.js';
+import { getGuestTicketsByAccessToken } from '../services/ticketStore.js';
 
 const router = Router();
 
