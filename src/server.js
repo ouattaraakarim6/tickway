@@ -8,34 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import reservationsRouter from './routes/reservations.js';
+import paymentsRouter from './routes/payments.js';
 import validateRouter from './routes/validate.js';
 import resendRouter from './routes/resend.js';
+import teamRouter from './routes/team.js';
+import founderRouter from './routes/founder.js';
 import pool from './db/pool.js';
-
-const INIT_SQL = `
-CREATE TABLE IF NOT EXISTS reservations (
-  reference     TEXT PRIMARY KEY,
-  prenom        TEXT        NOT NULL,
-  nom           TEXT        NOT NULL,
-  telephone     TEXT        NOT NULL,
-  email         TEXT        NOT NULL,
-  event_id      TEXT        NOT NULL,
-  event_nom     TEXT        NOT NULL,
-  event_date    TEXT        NOT NULL,
-  zone          TEXT        NOT NULL,
-  point_relais  TEXT        NOT NULL,
-  montant       INTEGER     NOT NULL,
-  mode_paiement TEXT        NOT NULL,
-  quantite      INTEGER     NOT NULL DEFAULT 1 CHECK (quantite >= 1 AND quantite <= 5),
-  statut        TEXT        NOT NULL DEFAULT 'valide'
-                            CHECK (statut IN ('valide', 'utilise')),
-  cree_le       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  utilise_le    TIMESTAMPTZ
-);
-ALTER TABLE reservations ADD COLUMN IF NOT EXISTS quantite INTEGER NOT NULL DEFAULT 1;
-CREATE INDEX IF NOT EXISTS idx_reservations_statut ON reservations (statut);
-CREATE INDEX IF NOT EXISTS idx_reservations_email  ON reservations (email);
-`;
+import { INIT_SQL } from './db/init.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -61,17 +40,18 @@ app.use(cors({
     }
     return callback(new Error('Non autorisé par CORS'));
   },
-  methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'X-Api-Key'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Api-Key', 'X-Team-Token', 'X-Agent-Id', 'X-Founder-Token', 'X-User-Token'],
 }));
 
 // ── Body parser ──
-app.use(express.json({ limit: '16kb' }));
+app.use(express.json({ limit: '32kb' }));
+app.use(express.urlencoded({ extended: false, limit: '32kb' }));
 
 // ── Rate limiting : réservations ──
 const reservationLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 5,              // 5 réservations par minute par IP
+  max: 10,             // 10 réservations par minute par IP
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -80,10 +60,10 @@ const reservationLimiter = rateLimit({
   },
 });
 
-// ── Rate limiting : validation (plus souple, l'équipe scanne vite) ──
+// ── Rate limiting : validation & espace équipe (souple, l'équipe scanne vite) ──
 const validateLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: 120,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -93,9 +73,33 @@ const validateLimiter = rateLimit({
 });
 
 // ── Routes API ──
-app.post('/api/reservations', reservationLimiter, reservationsRouter);
-app.post('/api/validate', validateLimiter, validateRouter);
-app.post('/api/resend', reservationLimiter, resendRouter);
+// Les comptes clients sont désactivés : toutes les réservations sont effectuées sans compte
+app.use('/api/auth', (req, res) => res.status(410).json({
+  statut: 'erreur',
+  code: 'ACCOUNTS_DISABLED',
+  message: 'Les comptes clients ont été supprimés : réservez directement sans compte sur TickWay.',
+}));
+app.use('/api/account', (req, res) => res.status(410).json({
+  statut: 'erreur',
+  code: 'ACCOUNTS_DISABLED',
+  message: 'Les espaces personnels clients ont été supprimés : utilisez votre lien sécurisé ou votre référence de billet.',
+}));
+app.use('/api/reservations', reservationLimiter, reservationsRouter);
+app.use('/api/payments/paysecurehub/init', reservationLimiter);
+app.use('/api/payments', validateLimiter, paymentsRouter);
+app.use('/api/validate', validateLimiter, validateRouter);
+app.use('/api/resend', reservationLimiter, resendRouter);
+app.use('/api/team', validateLimiter, teamRouter);
+app.use('/api/founder', validateLimiter, founderRouter);
+
+// Aucune route /api/* inconnue ne doit retomber sur le fallback HTML
+app.all('/api/*', (req, res) => {
+  return res.status(404).json({
+    statut: 'erreur',
+    code: 'NOT_FOUND',
+    message: 'Endpoint API introuvable.',
+  });
+});
 
 // ── Servir les fichiers statiques (le front) ──
 app.use(express.static(join(__dirname, '..', 'public')));
@@ -114,6 +118,7 @@ app.listen(PORT, async () => {
   }
   console.log(`\n🚐 TickWay backend démarré sur http://localhost:${PORT}\n`);
   console.log(`   POST /api/reservations   — Créer une réservation`);
-  console.log(`   POST /api/validate       — Valider un billet (clé requise)`);
-  console.log(`   POST /api/resend         — Renvoyer l'e-mail du billet\n`);
+  console.log(`   POST /api/validate       — Valider un billet (clé équipe requise)`);
+  console.log(`   POST /api/team/login     — Connexion Espace Équipe`);
+  console.log(`   GET  /api/founder/*      — Dashboard Fondateur sécurisé\n`);
 });

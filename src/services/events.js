@@ -126,7 +126,9 @@ export const PAIEMENTS = {
   wv: 'Wave',
   om: 'Orange Money',
   mt: 'MTN MoMo',
+  mv: 'Moov Money',
   cb: 'Carte bancaire',
+  psh: 'PaySecureHub (Mobile Money / Carte)',
 };
 
 export function findEvent(id) {
@@ -139,4 +141,23 @@ export function findRelais(zoneIndex, pointIndex) {
   const point = zone.p[pointIndex];
   if (!point) return null;
   return { zone: zone.n, commune: point[0], lieu: point[1] };
+}
+
+// Dates de fin d'événement (fuseau Abidjan GMT+0) pour empêcher le transfert après expiration
+export const EVENT_END_DATES = {
+  k: '2026-11-29T05:00:00Z',
+  sb: '2026-12-06T05:00:00Z',
+  dm: '2026-12-14T05:00:00Z',
+  mw: '2026-12-20T05:00:00Z',
+  t: '2026-12-21T05:00:00Z',
+  lp: '2026-12-21T05:00:00Z',
+  f: '2026-12-26T05:00:00Z',
+  h: '2026-12-27T05:00:00Z',
+  m: '2026-12-29T05:00:00Z',
+};
+
+export function isEventExpired(eventId, now = new Date()) {
+  const endIso = EVENT_END_DATES[eventId];
+  if (!endIso) return false;
+  return Date.parse(endIso) < (now instanceof Date ? now.getTime() : Number(now));
 }

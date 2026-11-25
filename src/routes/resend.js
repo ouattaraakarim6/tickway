@@ -19,7 +19,7 @@ router.post('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT reference, prenom, nom, email, telephone, event_nom, event_date,
-              zone, point_relais, montant, mode_paiement, quantite
+              zone, point_relais, montant, mode_paiement, quantite, statut, qr_text
        FROM reservations WHERE reference = $1`,
       [references[0]]
     );
@@ -29,14 +29,37 @@ router.post('/', async (req, res) => {
     }
 
     const r = rows[0];
+    if (r.statut === 'en_attente') {
+      return res.status(403).json({
+        statut: 'erreur',
+        message: 'Paiement en attente de confirmation : vos billets seront envoyés dès validation du paiement.',
+      });
+    }
+    if (r.statut === 'transfere' || r.statut === 'annule') {
+      return res.status(403).json({
+        statut: 'erreur',
+        message: 'Impossible de renvoyer ce billet : il a été transféré ou annulé.',
+      });
+    }
     const cleanNom = r.nom.replace(/\s*\(Ticket \d+\/\d+\)$/, '');
+    const baseOrigin = (process.env.APP_URL && !process.env.APP_URL.includes('localhost'))
+      ? process.env.APP_URL.replace(/\/$/, '')
+      : (req.get('host') ? `${req.protocol}://${req.get('host')}` : 'https://tickway.netlify.app');
+
     const tickets = await Promise.all(
-      references.map(async (ref, idx) => ({
-        numero: idx + 1,
-        reference: ref,
-        code: ref,
-        qrDataUrl: await generateQRDataUrl(ref),
-      }))
+      references.map(async (ref, idx) => {
+        const resRow = idx === 0
+          ? r
+          : ((await pool.query(`SELECT qr_text FROM reservations WHERE reference = $1`, [ref])).rows[0] || {});
+        const qrText = resRow.qr_text || `${baseOrigin}/#controle?c=${encodeURIComponent(ref)}`;
+        return {
+          numero: idx + 1,
+          reference: ref,
+          code: ref,
+          qrText,
+          qrDataUrl: await generateQRDataUrl(qrText),
+        };
+      })
     );
 
     const reservation = {

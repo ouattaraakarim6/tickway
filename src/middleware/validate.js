@@ -1,4 +1,4 @@
-// src/middleware/validate.js — Validation des champs de la réservation (support 1 à 5 tickets)
+// src/middleware/validate.js — Validation des champs de la réservation (support 1 à 5 tickets + localité + catégorie)
 
 // Téléphone ivoirien : 01–07 ou 09, 8 chiffres après l'indicatif éventuel
 const TEL_RE = /^(?:\+?225)?[0-9]{10}$/;
@@ -19,6 +19,8 @@ export function validateReservation(body) {
   const zone = body.zone;
   const pointRelaisIndex = body.pointRelaisIndex;
   const modePaiement = body.modePaiement;
+  const localite = (body.localite || '').trim();
+  const categorie = (body.categorie || 'Standard Navette').trim() || 'Standard Navette';
 
   // Quantité de tickets : 1 à 5 (défaut: 1)
   let quantite = Number(body.quantite);
@@ -50,6 +52,8 @@ export function validateReservation(body) {
       pointRelaisIndex: Number(pointRelaisIndex),
       modePaiement,
       quantite,
+      localite,
+      categorie,
     },
   };
 }

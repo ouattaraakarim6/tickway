@@ -1,138 +1,72 @@
-// src/routes/reservations.js — POST /api/reservations et GET /api/reservations/:ref/qr.png
+// src/routes/reservations.js — GET /api/reservations/access, GET /api/reservations/:ref/qr.png et verrouillage création directe
 import { Router } from 'express';
 import pool from '../db/pool.js';
-import { generateReference } from '../services/reference.js';
 import { generateQR, generateQRDataUrl } from '../services/qr.js';
-import { sendTicketEmail } from '../services/email.js';
-import { findEvent, findRelais, PAIEMENTS } from '../services/events.js';
-import { validateReservation } from '../middleware/validate.js';
+import { getGuestTicketsByAccessToken } from '../services/userStore.js';
 
 const router = Router();
 
-router.post('/', async (req, res) => {
-  // 1. Validation
-  const { valid, errors, sanitized } = validateReservation(req.body);
-  if (!valid) {
-    return res.status(400).json({ statut: 'erreur', errors });
+function resolveBaseOrigin(req) {
+  if (process.env.APP_URL && !process.env.APP_URL.includes('localhost')) {
+    return process.env.APP_URL.replace(/\/$/, '');
   }
+  return req.get('host') ? `${req.protocol}://${req.get('host')}` : 'https://tickway.netlify.app';
+}
 
-  const { prenom, nom, telephone, email, eventId, zone, pointRelaisIndex, modePaiement, quantite } = sanitized;
+router.post('/', (req, res) => {
+  return res.status(403).json({
+    statut: 'erreur',
+    code: 'PAYSECUREHUB_REQUIRED',
+    message: 'Le paiement exclusif via le Hub sécurisé PaySecureHub est obligatoire (/api/payments/paysecurehub/init).',
+  });
+});
 
-  // 2. Vérification des données métier côté serveur
-  const event = findEvent(eventId);
-  if (!event) {
-    return res.status(400).json({ statut: 'erreur', message: 'Événement introuvable.' });
-  }
-
-  const relais = findRelais(zone, pointRelaisIndex);
-  if (!relais) {
-    return res.status(400).json({ statut: 'erreur', message: 'Point relais invalide.' });
-  }
-
-  const pmLabel = PAIEMENTS[modePaiement];
-  if (!pmLabel) {
-    return res.status(400).json({ statut: 'erreur', message: 'Mode de paiement inconnu.' });
-  }
-
+// GET /api/reservations/access?k=<accessToken> — Retrouver une commande achetée sans compte via son lien sécurisé
+router.get('/access', async (req, res) => {
   try {
-    // 3. Générer N références uniques (1 à 5 tickets maximum, chacun avec son propre QR code unique)
-    const totalMontant = event.p * quantite;
-    const pointRelaisStr = `${relais.commune}, ${relais.lieu}`;
-    const eventDate = event.h ? `${event.d}, ${event.h}` : event.d;
-    const baseOrigin = (process.env.APP_URL && !process.env.APP_URL.includes('localhost'))
-      ? process.env.APP_URL.replace(/\/$/, '')
-      : (req.get('host') ? `${req.protocol}://${req.get('host')}` : 'https://tickway.netlify.app');
-
-    const tickets = [];
-    const references = [];
-
-    for (let i = 1; i <= quantite; i++) {
-      const ref = await generateReference();
-      references.push(ref);
-      const nomPassagerTicket = quantite > 1 ? `${nom} (Ticket ${i}/${quantite})` : nom;
-
-      await pool.query(
-        `INSERT INTO reservations
-          (reference, prenom, nom, telephone, email,
-           event_id, event_nom, event_date,
-           zone, point_relais, montant, mode_paiement, quantite)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-        [
-          ref, prenom, nomPassagerTicket, telephone, email,
-          event.id, event.n, eventDate,
-          relais.zone, pointRelaisStr, event.p, pmLabel, 1,
-        ]
-      );
-
-      const qrText = `${baseOrigin}/#controle?c=${encodeURIComponent(ref)}`;
-      const qrDataUrl = await generateQRDataUrl(qrText);
-      tickets.push({
-        numero: i,
-        reference: ref,
-        code: ref,
-        label: i === 1 ? `${prenom} ${nom} (Titulaire)` : `Passager ${i}`,
-        qrDataUrl,
-        qrText,
-        statut: 'valide',
-      });
+    const token = String(req.query.k || '').trim();
+    if (token.length < 16) {
+      return res.status(400).json({ statut: 'erreur', message: 'Lien d’accès invalide.' });
     }
-
-    const primaryRef = references[0];
-    const primaryQrDataUrl = tickets[0].qrDataUrl;
-
-    // Envoyer l'e-mail avec les N QR codes différents (non bloquant)
-    const reservation = {
-      reference: references.join(', '),
-      references,
-      prenom, nom, telephone, email,
-      event_nom: event.n, event_date: eventDate,
-      zone: relais.zone, point_relais: pointRelaisStr,
-      montant: totalMontant, mode_paiement: pmLabel,
-      quantite, tickets,
-    };
-
-    sendTicketEmail({ to: email, reservation, qrDataUrl: primaryQrDataUrl }).catch((err) => {
-      console.error(`[EMAIL] Échec d'envoi pour ${primaryRef} à ${email} :`, err.message);
-    });
-
-    // Répondre au client avec la liste des N tickets et leurs N QR codes différents
-    return res.status(201).json({
+    const baseOrigin = resolveBaseOrigin(req);
+    const list = await getGuestTicketsByAccessToken(token, baseOrigin);
+    if (!list.length) {
+      return res.status(404).json({ statut: 'erreur', message: 'Aucun billet associé à ce lien sécurisé.' });
+    }
+    const ticketsWithQr = await Promise.all(
+      list.map(async (t, i) => ({
+        ...t,
+        numero: i + 1,
+        qrDataUrl: await generateQRDataUrl(t.qrText),
+      }))
+    );
+    return res.json({
       statut: 'ok',
-      reference: primaryRef,
-      references,
-      qrDataUrl: primaryQrDataUrl,
-      quantite,
-      tickets,
-      reservation: {
-        prenom, nom, telephone, email,
-        evenement: event.n,
-        date: eventDate,
-        zone: relais.zone,
-        pointRelais: pointRelaisStr,
-        montant: totalMontant,
-        modePaiement: pmLabel,
-        quantite,
-      },
+      tickets: ticketsWithQr,
     });
-  } catch (err) {
-    console.error('[RESERVATION] Erreur :', err);
-    return res.status(500).json({ statut: 'erreur', message: 'Erreur interne du serveur.' });
+  } catch {
+    return res.status(500).json({ statut: 'erreur', message: 'Erreur lors de la récupération des billets.' });
   }
 });
 
-// Endpoint pour récupérer directement l'image PNG du QR code
+// Endpoint pour récupérer directement l'image PNG du QR code (refuse tout billet transféré ou annulé)
 router.get('/:reference/qr.png', async (req, res) => {
   const reference = (req.params.reference || '').trim().toUpperCase();
   if (!/^TW-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(reference)) {
     return res.status(400).send('Format de référence invalide.');
   }
   try {
-    const baseOrigin = (process.env.APP_URL && !process.env.APP_URL.includes('localhost'))
-      ? process.env.APP_URL.replace(/\/$/, '')
-      : (req.get('host') ? `${req.protocol}://${req.get('host')}` : 'https://tickway.netlify.app');
-    const qrBuffer = await generateQR(`${baseOrigin}/#controle?c=${encodeURIComponent(reference)}`);
+    const { rows } = await pool.query('SELECT statut, qr_text FROM reservations WHERE reference = $1 LIMIT 1', [reference]);
+    const row = rows[0];
+    if (row && (row.statut === 'en_attente' || row.statut === 'transfere' || row.statut === 'annule')) {
+      return res.status(403).send('Billet non actif (en attente de paiement, transféré ou annulé).');
+    }
+    const baseOrigin = resolveBaseOrigin(req);
+    const qrText = (row && row.qr_text)
+      || `${baseOrigin}/#controle?c=${encodeURIComponent(reference)}`;
+    const qrBuffer = await generateQR(qrText);
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.setHeader('Cache-Control', 'no-store');
     return res.send(qrBuffer);
   } catch (err) {
     return res.status(500).send('Erreur lors de la génération du QR code.');
