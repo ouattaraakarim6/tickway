@@ -22,8 +22,8 @@
 ## Reste à faire
 
 ### 1. Versionner le travail
-- [ ] Relire les changements (`git status`), puis commiter et pousser sur `main` (dépôt `ouattaraakarim6/tickway`). **Rien n'est encore commité.**
-- [ ] Vérifier que le dépôt GitHub est **privé**.
+- [x] Travail commité et poussé sur `main` (commit `73eaba6`, dépôt `ouattaraakarim6/tickway`).
+- [ ] ⚠️ Le dépôt GitHub est **PUBLIC**. Le code ne contient aucun secret, mais l'historique git contient le **hash du mot de passe fondateur actuel**, attaquable hors ligne. Passer le dépôt en **privé** (GitHub › Settings › General › Danger Zone › Change visibility), et envisager à terme de changer le mot de passe fondateur.
 
 ### 2. Déploiement o2switch (via Claude Desktop + `deploy/PROMPT-CLAUDE-DESKTOP.md`)
 - [ ] Accès SSH : autoriser l'IP dans cPanel, clé `~/.ssh/o2switch_tickway`, alias `o2switch-tickway`.
